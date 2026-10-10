@@ -8,8 +8,7 @@ In this directory, you can run:
 
 Runs the package in development mode.
 
-Open [http://localhost:3000/test](http://localhost:3000/test) to view the test
-playground in the browser. The page will reload if you make edits.
+Open [http://localhost:8080](http://localhost:8080) to view the test playground in the browser. The page will reload if you make edits.
 
 ### `npm run build`
 
