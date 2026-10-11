@@ -72,11 +72,18 @@ and what's worth doing next.
   position — applied symmetrically in both directions. This is what makes
   "free-drag persists" true even though structural syncing works by
   dispose-and-recreate rather than incremental patching.
-- **"Manually added" roots are exempt from type-based pruning.** A block
-  created directly in the layer workspace (not matching any active layer's
-  types) stays mirrored until it's deleted, regardless of what the
-  checkboxes say. Without this, a freshly created non-matching block would
-  flash into view and immediately vanish on the next reconciliation pass.
+- **"Manually added" roots are exempt from type-based pruning, but only
+  until the next deliberate layer-selection change.** A block created
+  directly in the layer workspace (not matching any active layer's types)
+  survives the reconciliation pass that registers it, so it doesn't flash
+  into view and immediately vanish. But the exemption is *not* permanent:
+  an explicit checkbox toggle (`notifyActiveLayersChanged`) re-evaluates
+  every manually-added block by type and drops the exemption for any that
+  don't match the new selection. (An earlier version of this made the
+  exemption permanent — a block dropped into an unrelated layer's workspace
+  out of curiosity would then follow that user around under every future
+  layer selection forever, which is the bug reported and fixed on
+  2026-10-10.)
 - **New standalone blocks in the layer workspace become new top-level
   blocks in main.** If a block created in the layer workspace isn't
   connected to anything already mirrored, it's pushed to main as an

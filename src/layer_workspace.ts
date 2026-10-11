@@ -51,16 +51,22 @@ export class LayerWorkspaceController {
   /** Creates/shows/hides the layer workspace to match the active layers. */
   refresh() {
     const active = this.getActiveTypes();
-    if (active.size === 0) {
-      this.hide();
+    if (!this.layerWorkspace && active.size === 0) {
       return;
     }
     if (!this.layerWorkspace) {
       this.create();
+    }
+    // Reconcile before hiding too: deactivating the last layer must still
+    // prune every mirrored block, otherwise they sit undisposed behind the
+    // hidden panel and reappear (still mirrored) the next time any layer is
+    // activated, regardless of whether it's the layer that put them there.
+    this.syncEngine.notifyActiveLayersChanged();
+    if (active.size === 0) {
+      this.hide();
     } else {
       this.show();
     }
-    this.syncEngine.notifyActiveLayersChanged();
   }
 
   isVisible(): boolean {

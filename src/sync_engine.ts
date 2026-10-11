@@ -125,7 +125,7 @@ export class SyncEngine {
    * Not triggered by a workspace event, so it's requested explicitly.
    */
   notifyActiveLayersChanged() {
-    this.reconcile("main");
+    this.reconcile("main", {honorManuallyAdded: false});
   }
 
   private handleEvent(event: Blockly.Events.Abstract, side: Side) {
@@ -184,15 +184,28 @@ export class SyncEngine {
    * the pass against the main workspace's current matches always runs, so
    * layer toggles and main-side edits are both picked up regardless of
    * which side triggered this call.
+   *
+   * `honorManuallyAdded` controls whether a block created directly in the
+   * layer workspace (and not matching any active layer's types) is exempt
+   * from type-based pruning. It defaults to true so a block someone just
+   * created doesn't vanish in the very same reconciliation pass that
+   * registers it, but an explicit layer-selection change (see
+   * {@link notifyActiveLayersChanged}) passes false: deliberately changing
+   * which layers are checked is a request to show exactly what matches, so
+   * a manually-added block only gets to outlive the layer selection that
+   * was active when it was created, not every selection after it.
    */
-  private reconcile(triggeringSide: Side) {
+  private reconcile(
+    triggeringSide: Side,
+    {honorManuallyAdded = true}: {honorManuallyAdded?: boolean} = {},
+  ) {
     const layerWorkspace = this.layerWorkspace;
     if (!layerWorkspace) return;
 
     if (triggeringSide === "layer") {
       this.reconcileFromLayer(layerWorkspace);
     }
-    this.reconcileFromMain(layerWorkspace);
+    this.reconcileFromMain(layerWorkspace, honorManuallyAdded);
   }
 
   private reconcileFromLayer(layerWorkspace: Blockly.WorkspaceSvg) {
@@ -217,13 +230,24 @@ export class SyncEngine {
     }
   }
 
-  private reconcileFromMain(layerWorkspace: Blockly.WorkspaceSvg) {
+  private reconcileFromMain(
+    layerWorkspace: Blockly.WorkspaceSvg,
+    honorManuallyAdded: boolean,
+  ) {
     const activeTypes = this.getActiveTypes();
     const desiredRootIds = new Set(
       findRootMatches(this.mainWorkspace, activeTypes).map((b) => b.id),
     );
-    for (const id of this.manuallyAdded) {
-      if (this.mainWorkspace.getBlockById(id)) desiredRootIds.add(id);
+    if (honorManuallyAdded) {
+      for (const id of this.manuallyAdded) {
+        if (this.mainWorkspace.getBlockById(id)) desiredRootIds.add(id);
+      }
+    } else {
+      // The active layers just changed deliberately: a manually-added block
+      // only gets to survive up through this point, not indefinitely.
+      for (const id of [...this.manuallyAdded]) {
+        if (!desiredRootIds.has(id)) this.manuallyAdded.delete(id);
+      }
     }
 
     for (const rootId of [...this.rootSnapshot.keys()]) {
