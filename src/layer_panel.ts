@@ -93,9 +93,10 @@ Blockly.Css.register(`
     border: none;
     background: none;
     cursor: pointer;
-    font-size: 0.85rem;
+    font-size: 0.95rem;
+    font-weight: bold;
     line-height: 1;
-    padding: 0 2px;
+    padding: 0 4px;
     color: #bbb;
   }
   .blockly-layers-panel-remove-btn:hover {
@@ -314,7 +315,7 @@ export class LayerPanel implements Blockly.IPositionable {
       const removeButton = document.createElement('button');
       removeButton.type = 'button';
       Blockly.utils.dom.addClass(removeButton, 'blockly-layers-panel-remove-btn');
-      removeButton.textContent = '×';
+      removeButton.textContent = '−';
       removeButton.title = `Remove ${layer.name}`;
       const clickEvent = Blockly.browserEvents.conditionalBind(
         removeButton,
