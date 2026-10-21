@@ -64,6 +64,18 @@ Blockly.Css.register(`
   .blockly-layers-panel-header-btn:hover {
     color: #000;
   }
+  .blockly-layers-panel-scope {
+    padding: 4px 10px;
+    font-size: 0.75rem;
+    color: #555;
+    overflow-wrap: anywhere;
+  }
+  .blockly-layers-panel-toolbar {
+    display: flex;
+    justify-content: space-between;
+    padding: 2px 5px;
+    border-bottom: 1px solid #eee;
+  }
   .blockly-layers-panel-search {
     padding: 6px 10px;
     border-bottom: 1px solid #eee;
@@ -166,6 +178,11 @@ export interface LayerPanelCallbacks {
   onAddManualLayer(): void;
   /** Called from the panel header's "Clear" button. */
   onClearAll(): void;
+  /** Display names of the active layers, for the collapsed "Showing: ..." bar. */
+  getActiveLayerNames(): string[];
+  getFilterMode(): 'hide' | 'dim';
+  onToggleFilterMode(): void;
+  onArrangeVisible(): void;
 }
 
 export class LayerPanel implements Blockly.IPositionable {
@@ -175,6 +192,12 @@ export class LayerPanel implements Blockly.IPositionable {
   private bodyDiv: HTMLDivElement | null = null;
   private searchInput: HTMLInputElement | null = null;
   private clearButton: HTMLButtonElement | null = null;
+  private collapseButton: HTMLButtonElement | null = null;
+  private scopeDiv: HTMLDivElement | null = null;
+  private toolbarDiv: HTMLDivElement | null = null;
+  private modeButton: HTMLButtonElement | null = null;
+  private searchWrapper: HTMLElement | null = null;
+  private collapsed = false;
   /** Row/section events, rebuilt on every render(). */
   private readonly rowBoundEvents: Blockly.browserEvents.Data[] = [];
   /** Header/search events, bound once in createDom() and kept across renders. */
@@ -213,6 +236,11 @@ export class LayerPanel implements Blockly.IPositionable {
       this.bodyDiv = null;
       this.searchInput = null;
       this.clearButton = null;
+      this.collapseButton = null;
+      this.scopeDiv = null;
+      this.toolbarDiv = null;
+      this.modeButton = null;
+      this.searchWrapper = null;
     }
   }
 
@@ -227,6 +255,29 @@ export class LayerPanel implements Blockly.IPositionable {
         ? ''
         : 'none';
     }
+
+    const hasActive = this.callbacks.hasActiveLayers();
+    if (this.collapseButton) {
+      this.collapseButton.textContent = this.collapsed ? '▸' : '▾';
+    }
+    if (this.searchWrapper) {
+      this.searchWrapper.style.display = this.collapsed ? 'none' : '';
+    }
+    if (this.toolbarDiv) {
+      this.toolbarDiv.style.display = hasActive && !this.collapsed ? '' : 'none';
+    }
+    if (this.modeButton) {
+      this.modeButton.textContent =
+        this.callbacks.getFilterMode() === 'hide' ? 'Others: hidden' : 'Others: dimmed';
+    }
+    if (this.scopeDiv) {
+      this.scopeDiv.style.display = this.collapsed ? '' : 'none';
+      const names = this.callbacks.getActiveLayerNames();
+      this.scopeDiv.textContent = names.length
+        ? 'Showing: ' + names.join(', ')
+        : 'Showing: all';
+    }
+    if (this.collapsed) return;
 
     const query = this.searchQuery.trim().toLowerCase();
     const searching = query.length > 0;
@@ -278,9 +329,20 @@ export class LayerPanel implements Blockly.IPositionable {
     const header = document.createElement('div');
     Blockly.utils.dom.addClass(header, 'blockly-layers-panel-header');
 
+    const titleWrap = document.createElement('span');
+    this.collapseButton = this.createHeaderButton(
+      '▾',
+      'Collapse or expand the panel',
+      () => {
+        this.collapsed = !this.collapsed;
+        this.render();
+      },
+    );
+    titleWrap.appendChild(this.collapseButton);
     const title = document.createElement('span');
     title.textContent = 'Layers';
-    header.appendChild(title);
+    titleWrap.appendChild(title);
+    header.appendChild(titleWrap);
 
     const actions = document.createElement('span');
     Blockly.utils.dom.addClass(actions, 'blockly-layers-panel-header-actions');
@@ -298,7 +360,30 @@ export class LayerPanel implements Blockly.IPositionable {
     header.appendChild(actions);
 
     this.htmlDiv.appendChild(header);
-    this.htmlDiv.appendChild(this.createSearchBox());
+
+    this.scopeDiv = document.createElement('div');
+    Blockly.utils.dom.addClass(this.scopeDiv, 'blockly-layers-panel-scope');
+    this.htmlDiv.appendChild(this.scopeDiv);
+
+    this.toolbarDiv = document.createElement('div');
+    Blockly.utils.dom.addClass(this.toolbarDiv, 'blockly-layers-panel-toolbar');
+    this.modeButton = this.createHeaderButton(
+      'Others: hidden',
+      'Hide or dim stacks outside the active layers',
+      () => this.callbacks.onToggleFilterMode(),
+    );
+    this.toolbarDiv.appendChild(this.modeButton);
+    this.toolbarDiv.appendChild(
+      this.createHeaderButton(
+        'Arrange visible',
+        'Stack the visible stacks into one column (undoable)',
+        () => this.callbacks.onArrangeVisible(),
+      ),
+    );
+    this.htmlDiv.appendChild(this.toolbarDiv);
+
+    this.searchWrapper = this.createSearchBox();
+    this.htmlDiv.appendChild(this.searchWrapper);
 
     this.bodyDiv = document.createElement('div');
     this.htmlDiv.appendChild(this.bodyDiv);

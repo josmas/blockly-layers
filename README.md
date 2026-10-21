@@ -1,6 +1,6 @@
 # blockly-layers [![Built on Blockly](https://tinyurl.com/built-on-blockly)](https://github.com/google/blockly)
 
-A [Blockly](https://www.npmjs.com/package/blockly) plugin that adds Photoshop-style "layers" to a workspace, for organizing large projects (hundreds or thousands of blocks) into meaningful parts. A layer is a named, checkbox-toggled group of **whole top-level stacks** — event handlers, procedure definitions, variable inits, anything that's its own entry on the canvas. Checking one or more layers opens a shared, fully-interactive secondary workspace showing just those stacks, independently arranged and editable, with changes synced back to the main workspace in both directions.
+A [Blockly](https://www.npmjs.com/package/blockly) plugin that adds Photoshop-style "layers" to a workspace, for organizing large projects (hundreds or thousands of blocks) into meaningful parts. A layer is a named, checkbox-toggled group of **whole top-level stacks** — event handlers, procedure definitions, variable inits, anything that's its own entry on the canvas. Checking one or more layers filters the workspace in place: stacks outside the active layers are hidden (or dimmed), and the view zooms to fit what's left. There is only one workspace, so everything stays fully editable and there is nothing to sync.
 
 Layers come from three sources, combinable in the same panel:
 
@@ -58,7 +58,9 @@ plugin.init();
 
 That's it — the panel ships with "Variables" and "Procedures" dynamic sections automatically, and a "Layers" section (manual, author-curated) with a "+" button to create a new one. Right-click any top-level stack in the main workspace and choose "Add to layer..." to assign it, or "New layer..." to create one and assign the stack in one step. Each manual layer row has a remove button; the panel header's "Clear" button (shown only when something's active) deactivates every layer at once.
 
-Checking a layer's box reveals the shared secondary workspace containing every stack belonging to any currently-checked layer, auto-arranged on first appearance and freely draggable after that. Editing a block in either workspace — fields, connections, new blocks, deletions — is reflected in the other.
+Checking a layer's box hides every stack that belongs to none of the checked layers (or dims it, via the panel's "Others: hidden/dimmed" toggle) and scrolls and zooms to fit the stacks that remain. Stacks keep their real positions; the panel's "Arrange visible" button stacks the visible ones into a column (a normal, undoable move). A stack created while filtering stays visible until the active layers next change. The panel can be collapsed to a one-line "Showing: ..." summary.
+
+Known limitation: workspace-level actions such as "Clean up Blocks", "Delete N Blocks" and "Collapse Blocks" still act on hidden stacks too.
 
 A project can easily have hundreds of variables or procedures, each becoming its own dynamic layer row, so every section except the manual "Layers" one is collapsible (collapsed by default) and a single search box filters rows across every section at once. Dynamic sections stay live — creating, deleting, or renaming a block updates the matching section automatically, no refresh needed.
 
@@ -66,8 +68,10 @@ A project can easily have hundreds of variables or procedures, each becoming its
 
 - `new LayersPlugin(workspace, {layers?, dynamicProviders?})` — `layers` seeds the static, installer-configured layers (`StaticLayerDefinition[]`: `{id, name, blockTypes, color?, icon?}`); `dynamicProviders` adds custom `DynamicLayerProvider`s alongside the built-in by-variable/by-procedure ones.
 - `plugin.init()` — registers persistence, the context menu, and shows the layer panel.
-- `plugin.dispose()` — tears down the panel, context menu, and layer workspace.
+- `plugin.dispose()` — tears down the panel and context menu, and restores any hidden stacks.
 - `plugin.setLayerActive(id, active)` / `plugin.getActiveLayerIds()` — show/hide any layer (from any source) programmatically, or read which are currently checked.
+- `plugin.setFilterMode('hide' | 'dim')` — how stacks outside the active layers are shown.
+- `plugin.arrangeVisible()` / `plugin.fitToVisible()` — stack the visible stacks into a column (undoable) / scroll and zoom to fit them.
 - `plugin.clearActiveLayers()` — deactivates every active layer, across all sources, in one call (the same action as the panel's "Clear" button).
 - `plugin.createManualLayer(name, {color?, icon?})` — creates a manual layer and returns its id; `plugin.removeManualLayer(id)` removes one.
 - `plugin.assignToLayer(topBlockId, layerId)` / `plugin.unassignFromLayer(topBlockId, layerId)` — the programmatic equivalent of the context menu action.

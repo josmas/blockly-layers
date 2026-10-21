@@ -39,6 +39,59 @@ stack can never be nested inside another one. Everything downstream of
 "which top-block ids are desired" (the `SyncEngine` mirroring machinery)
 needed no changes at all — only the computation of *which ids* changed.
 
+## V3 (2026-10-21): filter in place, single workspace
+
+V2 still showed active layers in a second, mirrored workspace docked at the
+bottom. Using it surfaced two problems: it spent 40% of the screen on a
+second canvas (own toolbox, scroll, zoom), and the layer panel sat on the
+main workspace while its checkboxes changed a workspace it didn't occupy.
+Most of the v2 bug history (duplicate procedures, the global render queue,
+`inject` stealing the main-workspace pointer) was also mirroring fallout.
+
+Options weighed: (A) keep two workspaces but swap them in the same slot with a
+host-level panel; (B) one workspace, filter in place; (C) overlay both
+(rejected: pointer routing, and with shared coordinates it is just B with
+extra cost); (D) per-layer tabs (kept as a possible later layer on top of B).
+**Chose B.** `SyncEngine` and `LayerWorkspaceController` were deleted.
+
+- **`LayerFilterController`** (`src/layer_filter.ts`): while any layer is
+  active, each top-level stack that isn't a member of an active layer is
+  hidden (`display:none`, default) or dimmed (opacity 0.15, no pointer
+  events; the panel's "Others" toggle). Filtered stacks' connections are
+  taken out of Blockly's connection DB with `RenderedConnection.setTracking(false)`
+  so dragged blocks can't snap onto invisible stacks (`setTracking` is marked
+  `@internal` in Blockly's typings, so it is worth re-checking on Blockly
+  upgrades). No active layer means no filtering at all, which is distinct
+  from active layers that happen to have no members.
+- **Positions are real.** Stacks keep their true coordinates. Instead of the
+  old auto-arrange, each selection change scrolls and zooms to fit the
+  visible stacks, and an explicit "Arrange visible" action stacks them into
+  a column as a real, undoable move (one event group). Compaction is never
+  automatic, because moving blocks as a side effect of toggling a checkbox
+  would silently rewrite the saved project.
+- **New stacks stay visible.** A top-level stack that appears while filtering
+  (created, or split off another stack) and isn't a member of an active
+  layer is exempt from hiding until the next selection change; this replaces
+  the old `manuallyAdded` concept. Re-filtering is debounced through a
+  microtask and deferred while a drag is in progress.
+- **Panel** stays an `IPositionable` on the one workspace, and gained a
+  collapse toggle with a one-line "Showing: ..." summary, the hide/dim
+  toggle and an "Arrange visible" button (toolbar only visible while a layer
+  is active).
+- **Lost on purpose:** independently arranged layer view, and a layer view
+  with its own zoom/scroll. Accepted in exchange for one canvas, one toolbox,
+  one undo stack and no sync layer.
+- **Known gap, accepted for now:** workspace-level actions ("Clean up
+  Blocks", "Delete N Blocks", "Collapse Blocks") still act on hidden stacks.
+  "Delete N Blocks" is the risky one: its count and effect include stacks the
+  user can't see. Possible fix: override those context menu items to act
+  only on visible stacks, or relabel/gate them while filtering.
+- **Not yet verified in a browser:** undo/redo, copy/paste while filtered,
+  fit-to-visible behaviour of `scrollBoundsIntoView`, and scrollbars (they
+  still span all top-level stacks via `getBlocksBoundingBox`; cosmetic).
+- **Deferred navigation ideas:** a recent-views strip (each view restores its
+  layer set and viewport) and back/forward history between layer selections.
+
 ## V2 architecture decisions
 
 - **`LayerSource` abstraction** (`src/layer_sources/types.ts`): `kind`
@@ -106,15 +159,17 @@ needed no changes at all — only the computation of *which ids* changed.
 - Separate filtered workspace, not hide-in-place; one shared layer
   workspace (union of active layers); layers combinable via checkboxes;
   full unfiltered toolbox in the layer workspace; auto-stack-then-free-drag
-  layout; bidirectional editing. **All of these still hold in v2 unchanged.**
+  layout; bidirectional editing. **Held through v2; superseded in V3 by
+  hide-in-place in the one workspace (layers remain combinable).**
 - ~~Nested blocks come along whole~~ — superseded by whole-top-level-stack
   as the atomic unit, which is a stronger, simpler version of the same
   underlying intent (never show a fragmented stack).
 
-## V1 sync architecture (reused as-is in v2)
+## V1 sync architecture (removed in V3, kept for history)
 
-This is why the v1 investment wasn't wasted — none of it needed to change,
-only what feeds it:
+This was reused as-is in v2, then deleted along with the second workspace in
+V3 (see above). The rest of this section and the 2026-10-21 bug-fix section
+describe code that no longer exists:
 
 - **Shared block IDs across both workspaces.** IDs are only unique *within*
   one workspace in Blockly core, so a mirrored block keeps the exact same
@@ -287,15 +342,12 @@ Two more gaps surfaced after the scaling work above:
   harmless (worst case: that layer mirrors into the layer workspace again
   on its own), not worth the bookkeeping to prune proactively right now.
 
-## Known limitations (v2)
+## Known limitations
 
-- **No grafting onto hidden context.** A new block created in the layer
-  workspace that isn't connected to an already-mirrored block is added to
-  main as a standalone top-level block.
-- **Layout isn't pluggable** — hardcoded vertical stack.
-- **Sync writes don't participate in undo** (`recordUndo: false`).
-- **No automated test coverage of `SyncEngine`, `LayerPanel`, or
-  `LayerWorkspaceController`** — these need a real rendered `WorkspaceSvg`/
+- **Workspace-level actions still touch hidden stacks** (Clean up, Delete N
+  Blocks, Collapse Blocks) while a layer filter is active; see V3.
+- **Arrange visible layout isn't pluggable** — hardcoded vertical stack.
+- **No automated test coverage of `LayerFilterController` or `LayerPanel`** — these need a real rendered `WorkspaceSvg`/
   DOM. Covered instead by the manual playground checklist in `AGENTS.md`.
   Pure logic (`block_matcher`, each `LayerSource`, the serializer) does
   have unit tests, using a headless `Blockly.Workspace`.
@@ -313,7 +365,7 @@ Two more gaps surfaced after the scaling work above:
 
 ## Next steps
 
-- Manually verify the v2 interactive checklist in a browser: assign two
+- Finish browser-verifying V3 (undo, copy/paste, fit-to-visible; see V3), then the v2 interactive checklist: assign two
   stacks to a new manual layer via right-click, toggle it on; create a
   variable and confirm it appears under "Variables"; save → clear → load
   and confirm manual assignment survives (automated via

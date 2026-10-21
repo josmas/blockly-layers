@@ -12,8 +12,8 @@ import type * as Blockly from 'blockly/core';
 /**
  * A named, user-toggleable group of top-level stacks ("islands" — event
  * handlers, procedure definitions, variable inits: anything that is its own
- * entry in `workspace.getTopBlocks()`). When active, every stack belonging
- * to the layer is mirrored into the shared layer workspace.
+ * entry in `workspace.getTopBlocks()`). While any layer is active, every stack
+ * belonging to an active layer stays visible and the rest are hidden or dimmed.
  */
 export interface LayerDefinition {
   /** Unique identifier for this layer. */

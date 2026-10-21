@@ -7,7 +7,7 @@
 /**
  * @fileoverview Entry point for the layers plugin: wires together the three
  * layer sources (manual, dynamic, static), the sectioned layer panel, the
- * "Add to layer..." context menu, and the shared layer workspace, and
+ * "Add to layer..." context menu, and the in-place layer filter, and
  * exposes the public API for managing layers at runtime.
  */
 import * as Blockly from 'blockly/core';
@@ -21,7 +21,8 @@ import {StaticTypeSource} from './layer_sources/static_type_source';
 import type {LayerSource} from './layer_sources/types';
 import type {LayerPanelSection} from './layer_panel';
 import {LayerPanel} from './layer_panel';
-import {LayerWorkspaceController} from './layer_workspace';
+import type {FilterMode} from './layer_filter';
+import {LayerFilterController} from './layer_filter';
 import type {LayerDefinition, LayersPluginOptions} from './layer_types';
 import {
   registerManualSource,
@@ -34,8 +35,8 @@ import {ManualLayerContextMenu} from './manual_layer_context_menu';
  * (a new/deleted block, a created/deleted/renamed variable) or how an
  * existing row should read (a procedure or variable field being renamed).
  * `BLOCK_MOVE` is deliberately excluded — reconnecting or repositioning a
- * block doesn't change which distinct keys exist in the project, only
- * `SyncEngine`'s separate, already-registered listener cares about that.
+ * block doesn't change which distinct keys exist in the project; the
+ * layer filter has its own listener for those.
  */
 const PANEL_REFRESH_EVENT_TYPES = new Set<string>([
   Blockly.Events.BLOCK_CREATE,
@@ -52,10 +53,9 @@ const PANEL_REFRESH_EVENT_TYPES = new Set<string>([
  * (via the "Add to layer..." context menu, persisted with the project),
  * layers auto-derived from project structure (one per variable, one per
  * procedure, plus any custom {@link DynamicLayerProvider}s supplied), and
- * installer-configured block-type-list layers (a secondary filter). An
- * active layer's stacks are mirrored into a single shared, fully-editable
- * secondary workspace, synced back to the main workspace in both
- * directions.
+ * installer-configured block-type-list layers (a secondary filter). While
+ * any layer is active, stacks outside the active layers are hidden (or
+ * dimmed) in the one and only workspace.
  */
 export class LayersPlugin {
   private readonly manualSource: ManualSource;
@@ -64,7 +64,7 @@ export class LayersPlugin {
   private readonly sources: LayerSource[];
   private readonly activeIds = new Set<string>();
   private readonly panel: LayerPanel;
-  private readonly layerWorkspaceController: LayerWorkspaceController;
+  private readonly filter: LayerFilterController;
   private readonly contextMenu: ManualLayerContextMenu;
   private panelRefreshQueued = false;
 
@@ -96,7 +96,7 @@ export class LayersPlugin {
 
     this.manualSource.onChange(() => {
       this.panel.render();
-      this.layerWorkspaceController.refresh();
+      this.filter.reapply();
     });
 
     this.panel = new LayerPanel(workspace, {
@@ -109,9 +109,16 @@ export class LayersPlugin {
         if (name) this.manualSource.createLayer(name);
       },
       onClearAll: () => this.clearActiveLayers(),
+      getActiveLayerNames: () => this.getActiveLayerNames(),
+      getFilterMode: () => this.filter.getMode(),
+      onToggleFilterMode: () =>
+        this.setFilterMode(this.filter.getMode() === 'hide' ? 'dim' : 'hide'),
+      onArrangeVisible: () => this.arrangeVisible(),
     });
-    this.layerWorkspaceController = new LayerWorkspaceController(workspace, () =>
-      this.getDesiredTopBlockIds(),
+    this.filter = new LayerFilterController(
+      workspace,
+      () => this.getDesiredTopBlockIds(),
+      () => this.activeIds.size > 0,
     );
     this.contextMenu = new ManualLayerContextMenu(workspace, this.manualSource);
     this.workspace.addChangeListener(this.onMainWorkspaceEvent);
@@ -124,16 +131,16 @@ export class LayersPlugin {
     this.panel.init();
   }
 
-  /** Disposes of the plugin and the layer workspace, if one was created. */
+  /** Disposes of the plugin, restoring any hidden or dimmed stacks. */
   dispose() {
     this.workspace.removeChangeListener(this.onMainWorkspaceEvent);
-    this.layerWorkspaceController.dispose();
+    this.filter.dispose();
     this.contextMenu.dispose();
     this.panel.dispose();
     unregisterManualSource(this.workspace);
   }
 
-  /** Activates or deactivates a layer (any source), updating the layer workspace. */
+  /** Activates or deactivates a layer (any source), re-filtering the workspace. */
   setLayerActive(id: string, active: boolean) {
     if (active) {
       this.activeIds.add(id);
@@ -141,7 +148,7 @@ export class LayersPlugin {
       this.activeIds.delete(id);
     }
     this.panel.render();
-    this.layerWorkspaceController.refresh();
+    this.filter.selectionChanged();
   }
 
   /** Returns the ids of the currently active (checked) layers, across all sources. */
@@ -154,7 +161,23 @@ export class LayersPlugin {
     if (this.activeIds.size === 0) return;
     this.activeIds.clear();
     this.panel.render();
-    this.layerWorkspaceController.refresh();
+    this.filter.selectionChanged();
+  }
+
+  /** Chooses whether stacks outside the active layers are hidden or dimmed. */
+  setFilterMode(mode: FilterMode) {
+    this.filter.setMode(mode);
+    this.panel.render();
+  }
+
+  /** Stacks the visible (active-layer) stacks into a tidy column; undoable. */
+  arrangeVisible() {
+    this.filter.arrangeVisible();
+  }
+
+  /** Scrolls and zooms the workspace to fit the currently visible stacks. */
+  fitToVisible() {
+    this.filter.fitToVisible();
   }
 
   /** Creates a new manual layer (initially unassigned to any stack) and returns its id. */
@@ -164,8 +187,9 @@ export class LayersPlugin {
 
   /** Removes a manual layer and every stack's assignment to it. */
   removeManualLayer(layerId: string) {
+    const wasActive = this.activeIds.delete(layerId);
     this.manualSource.removeLayer(layerId);
-    this.activeIds.delete(layerId);
+    if (wasActive) this.filter.selectionChanged();
   }
 
   /** Assigns the top-level stack with id `topBlockId` to a manual layer. */
@@ -191,6 +215,18 @@ export class LayersPlugin {
   /** The import counterpart to {@link exportManualLayers}. */
   importManualLayers(state: ManualLayerState) {
     this.manualSource.importState(state);
+  }
+
+  private getActiveLayerNames(): string[] {
+    const names = new Map<string, string>();
+    for (const source of this.sources) {
+      for (const layer of this.safeGetLayers(source)) {
+        names.set(layer.id, layer.name);
+      }
+    }
+    return [...this.activeIds]
+      .map((id) => names.get(id))
+      .filter((n): n is string => !!n);
   }
 
   private getSections(): LayerPanelSection[] {
@@ -236,7 +272,7 @@ export class LayersPlugin {
 
   /**
    * Debounces panel refreshes from main-workspace events through a
-   * microtask, the same way `SyncEngine` batches its own reconciliation, so
+   * microtask, the same way `LayerFilterController` batches its re-filtering, so
    * a burst of events from one user action (e.g. deleting a stack with
    * several blocks in it) collapses into a single `render()` call.
    */
