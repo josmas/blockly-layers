@@ -371,7 +371,7 @@ export class LayerPanel implements Blockly.IPositionable {
     this.toolbarDiv = document.createElement('div');
     Blockly.utils.dom.addClass(this.toolbarDiv, 'blockly-layers-panel-toolbar');
     this.modeButton = this.createHeaderButton(
-      'Others: hidden',
+      'Others: dimmed',
       'Hide or dim stacks outside the active layers',
       () => this.callbacks.onToggleFilterMode(),
     );

@@ -56,8 +56,8 @@ extra cost); (D) per-layer tabs (kept as a possible later layer on top of B).
 
 - **`LayerFilterController`** (`src/layer_filter.ts`): while any layer is
   active, each top-level stack that isn't a member of an active layer is
-  hidden (`display:none`, default) or dimmed (opacity 0.15, no pointer
-  events; the panel's "Others" toggle). Filtered stacks' connections are
+  dimmed (opacity 0.15, no pointer
+  events, default) or hidden (`display:none`; the panel's "Others" toggle). Filtered stacks' connections are
   taken out of Blockly's connection DB with `RenderedConnection.setTracking(false)`
   so dragged blocks can't snap onto invisible stacks (`setTracking` is marked
   `@internal` in Blockly's typings, so it is worth re-checking on Blockly

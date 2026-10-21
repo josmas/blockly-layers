@@ -7,7 +7,7 @@
 /**
  * @fileoverview Filters the main workspace in place: while any layer is
  * active, top-level stacks that belong to none of the active layers are
- * hidden (or dimmed) instead of being mirrored into a second workspace. No
+ * dimmed (default) or hidden instead of being mirrored into a second workspace. No
  * block is ever moved, copied or recreated, so there's nothing to keep in
  * sync.
  *
@@ -32,7 +32,7 @@ const STRUCTURAL_EVENT_TYPES = new Set<string>([
 ]);
 
 export class LayerFilterController {
-  private mode: FilterMode = 'hide';
+  private mode: FilterMode = 'dim';
   /** Stack states last applied to the DOM, keyed by top-block id. */
   private readonly applied = new Map<string, StackState>();
   /**

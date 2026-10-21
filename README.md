@@ -1,6 +1,6 @@
 # blockly-layers [![Built on Blockly](https://tinyurl.com/built-on-blockly)](https://github.com/google/blockly)
 
-A [Blockly](https://www.npmjs.com/package/blockly) plugin that adds Photoshop-style "layers" to a workspace, for organizing large projects (hundreds or thousands of blocks) into meaningful parts. A layer is a named, checkbox-toggled group of **whole top-level stacks** — event handlers, procedure definitions, variable inits, anything that's its own entry on the canvas. Checking one or more layers filters the workspace in place: stacks outside the active layers are hidden (or dimmed), and the view zooms to fit what's left. There is only one workspace, so everything stays fully editable and there is nothing to sync.
+A [Blockly](https://www.npmjs.com/package/blockly) plugin that adds Photoshop-style "layers" to a workspace, for organizing large projects (hundreds or thousands of blocks) into meaningful parts. A layer is a named, checkbox-toggled group of **whole top-level stacks** — event handlers, procedure definitions, variable inits, anything that's its own entry on the canvas. Checking one or more layers filters the workspace in place: stacks outside the active layers are dimmed (or hidden), and the view zooms to fit what's left. There is only one workspace, so everything stays fully editable and there is nothing to sync.
 
 Layers come from three sources, combinable in the same panel:
 
@@ -58,7 +58,7 @@ plugin.init();
 
 That's it — the panel ships with "Variables" and "Procedures" dynamic sections automatically, and a "Layers" section (manual, author-curated) with a "+" button to create a new one. Right-click any top-level stack in the main workspace and choose "Add to layer..." to assign it, or "New layer..." to create one and assign the stack in one step. Each manual layer row has a remove button; the panel header's "Clear" button (shown only when something's active) deactivates every layer at once.
 
-Checking a layer's box hides every stack that belongs to none of the checked layers (or dims it, via the panel's "Others: hidden/dimmed" toggle) and scrolls and zooms to fit the stacks that remain. Stacks keep their real positions; the panel's "Arrange visible" button stacks the visible ones into a column (a normal, undoable move). A stack created while filtering stays visible until the active layers next change. The panel can be collapsed to a one-line "Showing: ..." summary.
+Checking a layer's box dims every stack that belongs to none of the checked layers (or hides it, via the panel's "Others: dimmed/hidden" toggle) and scrolls and zooms to fit the stacks that remain. Stacks keep their real positions; the panel's "Arrange visible" button stacks the visible ones into a column (a normal, undoable move). A stack created while filtering stays visible until the active layers next change. The panel can be collapsed to a one-line "Showing: ..." summary.
 
 Known limitation: workspace-level actions such as "Clean up Blocks", "Delete N Blocks" and "Collapse Blocks" still act on hidden stacks too.
 
@@ -70,7 +70,7 @@ A project can easily have hundreds of variables or procedures, each becoming its
 - `plugin.init()` — registers persistence, the context menu, and shows the layer panel.
 - `plugin.dispose()` — tears down the panel and context menu, and restores any hidden stacks.
 - `plugin.setLayerActive(id, active)` / `plugin.getActiveLayerIds()` — show/hide any layer (from any source) programmatically, or read which are currently checked.
-- `plugin.setFilterMode('hide' | 'dim')` — how stacks outside the active layers are shown.
+- `plugin.setFilterMode('hide' | 'dim')` — how stacks outside the active layers are shown (default `'dim'`).
 - `plugin.arrangeVisible()` / `plugin.fitToVisible()` — stack the visible stacks into a column (undoable) / scroll and zoom to fit them.
 - `plugin.clearActiveLayers()` — deactivates every active layer, across all sources, in one call (the same action as the panel's "Clear" button).
 - `plugin.createManualLayer(name, {color?, icon?})` — creates a manual layer and returns its id; `plugin.removeManualLayer(id)` removes one.
