@@ -56,9 +56,11 @@ const plugin = new LayersPlugin(workspace, {
 plugin.init();
 ```
 
-That's it — the panel ships with "Variables" and "Procedures" dynamic sections automatically, and a "Layers" section (manual, author-curated) with a "+" button to create a new one. Right-click any top-level stack in the main workspace and choose "Add to layer..." to assign it, or "New layer..." to create one and assign the stack in one step.
+That's it — the panel ships with "Variables" and "Procedures" dynamic sections automatically, and a "Layers" section (manual, author-curated) with a "+" button to create a new one. Right-click any top-level stack in the main workspace and choose "Add to layer..." to assign it, or "New layer..." to create one and assign the stack in one step. Each manual layer row has a remove button; the panel header's "Clear" button (shown only when something's active) deactivates every layer at once.
 
 Checking a layer's box reveals the shared secondary workspace containing every stack belonging to any currently-checked layer, auto-arranged on first appearance and freely draggable after that. Editing a block in either workspace — fields, connections, new blocks, deletions — is reflected in the other.
+
+A project can easily have hundreds of variables or procedures, each becoming its own dynamic layer row, so every section except the manual "Layers" one is collapsible (collapsed by default) and a single search box filters rows across every section at once. Dynamic sections stay live — creating, deleting, or renaming a block updates the matching section automatically, no refresh needed.
 
 ## API
 
@@ -66,6 +68,7 @@ Checking a layer's box reveals the shared secondary workspace containing every s
 - `plugin.init()` — registers persistence, the context menu, and shows the layer panel.
 - `plugin.dispose()` — tears down the panel, context menu, and layer workspace.
 - `plugin.setLayerActive(id, active)` / `plugin.getActiveLayerIds()` — show/hide any layer (from any source) programmatically, or read which are currently checked.
+- `plugin.clearActiveLayers()` — deactivates every active layer, across all sources, in one call (the same action as the panel's "Clear" button).
 - `plugin.createManualLayer(name, {color?, icon?})` — creates a manual layer and returns its id; `plugin.removeManualLayer(id)` removes one.
 - `plugin.assignToLayer(topBlockId, layerId)` / `plugin.unassignFromLayer(topBlockId, layerId)` — the programmatic equivalent of the context menu action.
 - `plugin.exportManualLayers()` / `plugin.importManualLayers(state)` — manual export/import escape hatch; see [Persistence](#persistence).

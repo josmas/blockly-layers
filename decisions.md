@@ -310,10 +310,6 @@ Two more gaps surfaced after the scaling work above:
   field) — a block with multiple variable fields only contributes to one
   dynamic layer, not several.
 - **RTL has only basic positioning logic**, unexercised in practice.
-- **Dynamic sections only recompute when the panel re-renders** (on layer
-  toggles, manual-layer changes), not on every main-workspace edit — so a
-  brand-new variable/procedure won't appear in its dynamic section until
-  something else triggers a re-render. Minor and not yet addressed.
 
 ## Next steps
 
@@ -323,10 +319,6 @@ Two more gaps surfaced after the scaling work above:
   and confirm manual assignment survives (automated via
   `test/layers_serializer.mocha.js`, but worth an end-to-end playground
   pass too).
-- Add a debounced re-render trigger for dynamic sections on relevant
-  main-workspace structural events (new/deleted variable, procedure,
-  block), so new variables/procedures show up promptly without requiring
-  an unrelated panel interaction first.
 - Consider a richer "new layer" input than `window.prompt`.
 - Consider a "manage layers" view for bulk rename/recolor/delete and
   browsing a stack's current assignments.
