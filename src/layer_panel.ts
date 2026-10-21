@@ -27,7 +27,7 @@ Blockly.Css.register(`
     position: absolute;
     display: flex;
     flex-direction: column;
-    min-width: 180px;
+    width: 220px;
     max-height: 60%;
     overflow-y: auto;
     background: #fff;
@@ -118,6 +118,11 @@ Blockly.Css.register(`
     text-overflow: ellipsis;
     white-space: nowrap;
     flex: 1 1 auto;
+    /* Flex items default to min-width: auto, which stops them shrinking
+       below their content's natural size — without this, a long name
+       would force the row (and the panel itself, since it has no other
+       width constraint of its own) to grow instead of truncating. */
+    min-width: 0;
   }
   .blockly-layers-panel-remove-btn {
     flex: 0 0 auto;
