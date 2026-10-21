@@ -33,32 +33,38 @@ Blockly.Css.register(`
     z-index: 20;
   }
   .blockly-layers-panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
     padding: 6px 10px;
     font-weight: bold;
     border-bottom: 1px solid #eee;
   }
-  .blockly-layers-panel-section-header {
+  .blockly-layers-panel-header-actions {
     display: flex;
-    align-items: center;
-    justify-content: space-between;
+    gap: 2px;
+  }
+  .blockly-layers-panel-header-btn {
+    border: none;
+    background: none;
+    cursor: pointer;
+    font: inherit;
+    font-weight: normal;
+    font-size: 0.75rem;
+    line-height: 1;
+    padding: 2px 5px;
+    color: #777;
+  }
+  .blockly-layers-panel-header-btn:hover {
+    color: #000;
+  }
+  .blockly-layers-panel-section-header {
     padding: 6px 10px 2px;
     font-size: 0.7rem;
     font-weight: bold;
     text-transform: uppercase;
     letter-spacing: 0.02em;
     color: #777;
-  }
-  .blockly-layers-panel-add-btn {
-    border: none;
-    background: none;
-    cursor: pointer;
-    font-size: 0.9rem;
-    line-height: 1;
-    padding: 0 4px;
-    color: #777;
-  }
-  .blockly-layers-panel-add-btn:hover {
-    color: #000;
   }
   .blockly-layers-panel-row {
     display: flex;
@@ -83,18 +89,26 @@ Blockly.Css.register(`
   }
 `);
 
-/** A group of layers shown together under one heading in the panel. */
+/** A group of layers shown together in the panel. */
 export interface LayerPanelSection {
   title: string;
   layers: LayerDefinition[];
-  /** If set, an "add" button is rendered next to this section's heading. */
-  onAdd?: () => void;
+  /**
+   * If true, this section's rows render directly under the panel's own
+   * "Layers" title with no heading of their own — used for the primary,
+   * manual layer group, so "Layers" doesn't appear twice in a row.
+   */
+  headerless?: boolean;
 }
 
 export interface LayerPanelCallbacks {
   getSections(): LayerPanelSection[];
   isActive(layerId: string): boolean;
   onToggle(layerId: string, active: boolean): void;
+  /** Called from the panel header's "+" button. */
+  onAddManualLayer(): void;
+  /** Called from the panel header's "Clear" button. */
+  onClearAll(): void;
 }
 
 export class LayerPanel implements Blockly.IPositionable {
@@ -102,7 +116,10 @@ export class LayerPanel implements Blockly.IPositionable {
 
   private htmlDiv: HTMLDivElement | null = null;
   private bodyDiv: HTMLDivElement | null = null;
-  private readonly boundEvents: Blockly.browserEvents.Data[] = [];
+  /** Row/section events, rebuilt on every render(). */
+  private readonly rowBoundEvents: Blockly.browserEvents.Data[] = [];
+  /** Header button events, bound once in createDom() and kept across renders. */
+  private readonly headerBoundEvents: Blockly.browserEvents.Data[] = [];
 
   constructor(
     private readonly workspace: Blockly.WorkspaceSvg,
@@ -121,7 +138,11 @@ export class LayerPanel implements Blockly.IPositionable {
   }
 
   dispose() {
-    this.unbindAll();
+    this.unbindRowEvents();
+    for (const event of this.headerBoundEvents) {
+      Blockly.browserEvents.unbind(event);
+    }
+    this.headerBoundEvents.length = 0;
     if (this.htmlDiv) {
       Blockly.utils.dom.removeNode(this.htmlDiv);
       this.htmlDiv = null;
@@ -132,11 +153,17 @@ export class LayerPanel implements Blockly.IPositionable {
   /** Rebuilds every section and row. Call whenever layers may have changed. */
   render() {
     if (!this.bodyDiv) return;
-    this.unbindAll();
+    this.unbindRowEvents();
     this.bodyDiv.replaceChildren();
 
     for (const section of this.callbacks.getSections()) {
-      if (!section.layers.length && !section.onAdd) continue;
+      if (section.headerless) {
+        for (const layer of section.layers) {
+          this.bodyDiv.appendChild(this.createRow(layer));
+        }
+        continue;
+      }
+      if (!section.layers.length) continue;
       this.bodyDiv.appendChild(this.createSection(section));
     }
   }
@@ -165,13 +192,51 @@ export class LayerPanel implements Blockly.IPositionable {
 
     const header = document.createElement('div');
     Blockly.utils.dom.addClass(header, 'blockly-layers-panel-header');
-    header.textContent = 'Layers';
+
+    const title = document.createElement('span');
+    title.textContent = 'Layers';
+    header.appendChild(title);
+
+    const actions = document.createElement('span');
+    Blockly.utils.dom.addClass(actions, 'blockly-layers-panel-header-actions');
+    actions.appendChild(
+      this.createHeaderButton('Clear', 'Deactivate all layers', () =>
+        this.callbacks.onClearAll(),
+      ),
+    );
+    actions.appendChild(
+      this.createHeaderButton('+', 'New layer', () =>
+        this.callbacks.onAddManualLayer(),
+      ),
+    );
+    header.appendChild(actions);
+
     this.htmlDiv.appendChild(header);
 
     this.bodyDiv = document.createElement('div');
     this.htmlDiv.appendChild(this.bodyDiv);
 
     injectionDiv.insertBefore(this.htmlDiv, this.workspace.getParentSvg());
+  }
+
+  private createHeaderButton(
+    label: string,
+    title: string,
+    onClick: () => void,
+  ): HTMLButtonElement {
+    const button = document.createElement('button');
+    button.type = 'button';
+    Blockly.utils.dom.addClass(button, 'blockly-layers-panel-header-btn');
+    button.textContent = label;
+    button.title = title;
+    const clickEvent = Blockly.browserEvents.conditionalBind(
+      button,
+      'click',
+      this,
+      onClick,
+    );
+    this.headerBoundEvents.push(clickEvent);
+    return button;
   }
 
   private createSection(section: LayerPanelSection): HTMLElement {
@@ -182,25 +247,7 @@ export class LayerPanel implements Blockly.IPositionable {
       sectionHeader,
       'blockly-layers-panel-section-header',
     );
-    const title = document.createElement('span');
-    title.textContent = section.title;
-    sectionHeader.appendChild(title);
-
-    if (section.onAdd) {
-      const addButton = document.createElement('button');
-      addButton.type = 'button';
-      Blockly.utils.dom.addClass(addButton, 'blockly-layers-panel-add-btn');
-      addButton.textContent = '+';
-      addButton.title = `New ${section.title.toLowerCase().replace(/s$/, '')}`;
-      const clickEvent = Blockly.browserEvents.conditionalBind(
-        addButton,
-        'click',
-        this,
-        () => section.onAdd?.(),
-      );
-      this.boundEvents.push(clickEvent);
-      sectionHeader.appendChild(addButton);
-    }
+    sectionHeader.textContent = section.title;
     container.appendChild(sectionHeader);
 
     for (const layer of section.layers) {
@@ -242,15 +289,15 @@ export class LayerPanel implements Blockly.IPositionable {
       this,
       () => this.callbacks.onToggle(layer.id, checkbox.checked),
     );
-    this.boundEvents.push(changeEvent);
+    this.rowBoundEvents.push(changeEvent);
 
     return row;
   }
 
-  private unbindAll() {
-    for (const event of this.boundEvents) {
+  private unbindRowEvents() {
+    for (const event of this.rowBoundEvents) {
       Blockly.browserEvents.unbind(event);
     }
-    this.boundEvents.length = 0;
+    this.rowBoundEvents.length = 0;
   }
 }

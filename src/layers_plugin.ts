@@ -78,6 +78,11 @@ export class LayersPlugin {
       getSections: () => this.getSections(),
       isActive: (id) => this.activeIds.has(id),
       onToggle: (id, active) => this.setLayerActive(id, active),
+      onAddManualLayer: () => {
+        const name = window.prompt('New layer name:');
+        if (name) this.manualSource.createLayer(name);
+      },
+      onClearAll: () => this.clearActiveLayers(),
     });
     this.layerWorkspaceController = new LayerWorkspaceController(workspace, () =>
       this.getDesiredTopBlockIds(),
@@ -114,6 +119,14 @@ export class LayersPlugin {
   /** Returns the ids of the currently active (checked) layers, across all sources. */
   getActiveLayerIds(): string[] {
     return [...this.activeIds];
+  }
+
+  /** Deactivates every active layer, across all sources, in one call. */
+  clearActiveLayers() {
+    if (this.activeIds.size === 0) return;
+    this.activeIds.clear();
+    this.panel.render();
+    this.layerWorkspaceController.refresh();
   }
 
   /** Creates a new manual layer (initially unassigned to any stack) and returns its id. */
@@ -157,10 +170,7 @@ export class LayersPlugin {
       {
         title: this.manualSource.sectionTitle,
         layers: this.safeGetLayers(this.manualSource),
-        onAdd: () => {
-          const name = window.prompt('New layer name:');
-          if (name) this.manualSource.createLayer(name);
-        },
+        headerless: true,
       },
     ];
     for (const source of this.dynamicSources) {
