@@ -190,6 +190,60 @@ dynamic) vanished and stayed gone after deactivating the layer again.
   after creating the layer workspace, exploiting the same listener Blockly
   already registers, to claim the pointer back immediately.
 
+## 2026-10 panel scaling: collapsible sections + global search
+
+A real project can easily have 100+ variables and 200+ procedures — each
+becomes its own dynamic layer row — and a project author can define a good
+number of custom (manual) layers too. The panel originally listed every
+layer in every section as a permanent checkbox row; `max-height: 60%` +
+`overflow-y: auto` kept it from literally growing past the screen, but
+scrolling through hundreds of rows to find one, with custom layers buried
+below the giant Variables/Procedures sections, made the panel impractical
+at that scale.
+
+Considered two options: (a) a bigger redesign splitting the panel into an
+always-visible "active layers" zone (flat, every source mixed together) and
+a separate collapsed/searchable "browse" area for everything inactive —
+the tag-picker pattern used by Gmail labels/GitHub issue labels — versus
+(b) an incremental fix keeping today's fixed section layout. **Chose (b)**:
+lower cost, keeps the panel's structure recognizable, and still solves the
+scaling problem for the common case of knowing roughly what you're looking
+for. (a) remains on the table if search/collapse turns out not to be
+enough in practice.
+
+Decisions:
+
+- **Collapsible sections, collapsed by default, except the manual "Layers"
+  section** — which stays always fully visible, uncollapsible. Rationale:
+  author-curated layers are deliberately created by a human, so they're
+  naturally bounded (tens, not hundreds) and are usually exactly what
+  someone wants to see/toggle; a project's Variables/Procedures/custom
+  dynamic sections are the ones that can genuinely scale into the hundreds
+  and benefit from defaulting out of view.
+- **One global search box**, not one per section — simpler mental model,
+  matches command-palette-style search most people already know. Typing
+  filters every section's rows by case-insensitive substring match and
+  auto-expands any section with a match, overriding its collapsed state
+  for the duration of the search; clearing the query restores whatever
+  collapsed/expanded state each section had before.
+- **Active-count indicator on collapsed section headers** (`(N/total)`,
+  e.g. "Variables (1/103)") — added beyond what was explicitly discussed,
+  because collapsing a section with no indicator of what's active inside
+  it would make it easy to forget you have something toggled on in there.
+  Uses the already-available `callbacks.isActive(layerId)`, no new wiring.
+- **The search `<input>` is created once in `createDom()`, not inside the
+  `bodyDiv` that `render()` wipes via `replaceChildren()` on every
+  keystroke** — otherwise the input would lose focus after every character
+  typed, since `render()` runs on every `input` event. Its event binding
+  lives in the same "bound once, survives across renders" bucket as the
+  header's Clear/+ buttons (renamed from `headerBoundEvents` to
+  `chromeBoundEvents` since it now covers more than just the header).
+- This is all presentation-only state local to `LayerPanel`
+  (`searchQuery`, `expandedSections: Set<string>` keyed by section title)
+  — `LayersPlugin` and the `LayerSource`s are untouched, since search/
+  collapse is purely about how already-computed sections are displayed,
+  not what layers exist or which are active.
+
 ## Known limitations (v2)
 
 - **No grafting onto hidden context.** A new block created in the layer

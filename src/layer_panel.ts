@@ -11,6 +11,12 @@
  * `@blockly/workspace-search`'s `WorkspaceSearch`: an HTML overlay
  * registered with the workspace's `ComponentManager` as `IPositionable` so
  * Blockly repositions it automatically.
+ *
+ * Sections other than the manual one are collapsible (collapsed by
+ * default) and a single search box filters rows across every section at
+ * once, auto-expanding whichever sections have a match — a project can
+ * easily have hundreds of dynamic (by-variable/by-procedure) layers, and
+ * listing all of them permanently would make the panel unusable.
  */
 import * as Blockly from 'blockly/core';
 
@@ -58,13 +64,38 @@ Blockly.Css.register(`
   .blockly-layers-panel-header-btn:hover {
     color: #000;
   }
+  .blockly-layers-panel-search {
+    padding: 6px 10px;
+    border-bottom: 1px solid #eee;
+  }
+  .blockly-layers-panel-search input {
+    box-sizing: border-box;
+    width: 100%;
+    font: inherit;
+    font-size: 0.75rem;
+    padding: 3px 6px;
+    border: 1px solid #ccc;
+    border-radius: 3px;
+  }
   .blockly-layers-panel-section-header {
+    display: flex;
+    align-items: baseline;
+    gap: 4px;
     padding: 6px 10px 2px;
     font-size: 0.7rem;
     font-weight: bold;
     text-transform: uppercase;
     letter-spacing: 0.02em;
     color: #777;
+    cursor: pointer;
+  }
+  .blockly-layers-panel-section-header:hover {
+    color: #333;
+  }
+  .blockly-layers-panel-section-count {
+    font-weight: normal;
+    text-transform: none;
+    letter-spacing: normal;
   }
   .blockly-layers-panel-row {
     display: flex;
@@ -110,8 +141,10 @@ export interface LayerPanelSection {
   layers: LayerDefinition[];
   /**
    * If true, this section's rows render directly under the panel's own
-   * "Layers" title with no heading of their own — used for the primary,
-   * manual layer group, so "Layers" doesn't appear twice in a row.
+   * "Layers" title with no heading of their own, and are never collapsible
+   * — used for the primary, manual layer group, so "Layers" doesn't appear
+   * twice in a row and the layers someone deliberately curated are always
+   * visible regardless of how big other sections get.
    */
   headerless?: boolean;
   /** If set, every row in this section gets a remove button that calls this. */
@@ -133,10 +166,16 @@ export class LayerPanel implements Blockly.IPositionable {
 
   private htmlDiv: HTMLDivElement | null = null;
   private bodyDiv: HTMLDivElement | null = null;
+  private searchInput: HTMLInputElement | null = null;
   /** Row/section events, rebuilt on every render(). */
   private readonly rowBoundEvents: Blockly.browserEvents.Data[] = [];
-  /** Header button events, bound once in createDom() and kept across renders. */
-  private readonly headerBoundEvents: Blockly.browserEvents.Data[] = [];
+  /** Header/search events, bound once in createDom() and kept across renders. */
+  private readonly chromeBoundEvents: Blockly.browserEvents.Data[] = [];
+
+  /** Current search box text. */
+  private searchQuery = '';
+  /** Titles of non-headerless sections the user has manually expanded. */
+  private readonly expandedSections = new Set<string>();
 
   constructor(
     private readonly workspace: Blockly.WorkspaceSvg,
@@ -156,14 +195,15 @@ export class LayerPanel implements Blockly.IPositionable {
 
   dispose() {
     this.unbindRowEvents();
-    for (const event of this.headerBoundEvents) {
+    for (const event of this.chromeBoundEvents) {
       Blockly.browserEvents.unbind(event);
     }
-    this.headerBoundEvents.length = 0;
+    this.chromeBoundEvents.length = 0;
     if (this.htmlDiv) {
       Blockly.utils.dom.removeNode(this.htmlDiv);
       this.htmlDiv = null;
       this.bodyDiv = null;
+      this.searchInput = null;
     }
   }
 
@@ -173,15 +213,28 @@ export class LayerPanel implements Blockly.IPositionable {
     this.unbindRowEvents();
     this.bodyDiv.replaceChildren();
 
+    const query = this.searchQuery.trim().toLowerCase();
+    const searching = query.length > 0;
+    const matches = (layers: LayerDefinition[]) =>
+      searching
+        ? layers.filter((l) => l.name.toLowerCase().includes(query))
+        : layers;
+
     for (const section of this.callbacks.getSections()) {
       if (section.headerless) {
-        for (const layer of section.layers) {
+        for (const layer of matches(section.layers)) {
           this.bodyDiv.appendChild(this.createRow(layer, section.onRemove));
         }
         continue;
       }
-      if (!section.layers.length) continue;
-      this.bodyDiv.appendChild(this.createSection(section));
+
+      const visible = matches(section.layers);
+      if (!visible.length) continue;
+
+      const expanded = searching || this.expandedSections.has(section.title);
+      this.bodyDiv.appendChild(
+        this.createSection(section, visible, expanded),
+      );
     }
   }
 
@@ -229,11 +282,49 @@ export class LayerPanel implements Blockly.IPositionable {
     header.appendChild(actions);
 
     this.htmlDiv.appendChild(header);
+    this.htmlDiv.appendChild(this.createSearchBox());
 
     this.bodyDiv = document.createElement('div');
     this.htmlDiv.appendChild(this.bodyDiv);
 
     injectionDiv.insertBefore(this.htmlDiv, this.workspace.getParentSvg());
+  }
+
+  private createSearchBox(): HTMLElement {
+    const wrapper = document.createElement('div');
+    Blockly.utils.dom.addClass(wrapper, 'blockly-layers-panel-search');
+
+    this.searchInput = document.createElement('input');
+    this.searchInput.type = 'search';
+    this.searchInput.placeholder = 'Search layers…';
+
+    this.chromeBoundEvents.push(
+      Blockly.browserEvents.conditionalBind(
+        this.searchInput,
+        'input',
+        this,
+        () => {
+          this.searchQuery = this.searchInput?.value ?? '';
+          this.render();
+        },
+      ),
+    );
+    this.chromeBoundEvents.push(
+      Blockly.browserEvents.conditionalBind(
+        this.searchInput,
+        'keydown',
+        this,
+        (e: KeyboardEvent) => {
+          if (e.key !== 'Escape' || !this.searchInput) return;
+          this.searchInput.value = '';
+          this.searchQuery = '';
+          this.render();
+        },
+      ),
+    );
+
+    wrapper.appendChild(this.searchInput);
+    return wrapper;
   }
 
   private createHeaderButton(
@@ -252,11 +343,15 @@ export class LayerPanel implements Blockly.IPositionable {
       this,
       onClick,
     );
-    this.headerBoundEvents.push(clickEvent);
+    this.chromeBoundEvents.push(clickEvent);
     return button;
   }
 
-  private createSection(section: LayerPanelSection): HTMLElement {
+  private createSection(
+    section: LayerPanelSection,
+    visibleLayers: LayerDefinition[],
+    expanded: boolean,
+  ): HTMLElement {
     const container = document.createElement('div');
 
     const sectionHeader = document.createElement('div');
@@ -264,11 +359,45 @@ export class LayerPanel implements Blockly.IPositionable {
       sectionHeader,
       'blockly-layers-panel-section-header',
     );
-    sectionHeader.textContent = section.title;
+
+    const disclosure = document.createElement('span');
+    disclosure.textContent = expanded ? '▾' : '▸';
+    sectionHeader.appendChild(disclosure);
+
+    const title = document.createElement('span');
+    title.textContent = section.title;
+    sectionHeader.appendChild(title);
+
+    const activeCount = visibleLayers.filter((l) =>
+      this.callbacks.isActive(l.id),
+    ).length;
+    const count = document.createElement('span');
+    Blockly.utils.dom.addClass(count, 'blockly-layers-panel-section-count');
+    count.textContent = activeCount
+      ? `(${activeCount}/${visibleLayers.length})`
+      : `(${visibleLayers.length})`;
+    sectionHeader.appendChild(count);
+
+    const toggleEvent = Blockly.browserEvents.conditionalBind(
+      sectionHeader,
+      'click',
+      this,
+      () => {
+        if (this.expandedSections.has(section.title)) {
+          this.expandedSections.delete(section.title);
+        } else {
+          this.expandedSections.add(section.title);
+        }
+        this.render();
+      },
+    );
+    this.rowBoundEvents.push(toggleEvent);
     container.appendChild(sectionHeader);
 
-    for (const layer of section.layers) {
-      container.appendChild(this.createRow(layer, section.onRemove));
+    if (expanded) {
+      for (const layer of visibleLayers) {
+        container.appendChild(this.createRow(layer, section.onRemove));
+      }
     }
     return container;
   }
