@@ -244,6 +244,49 @@ Decisions:
   collapse is purely about how already-computed sections are displayed,
   not what layers exist or which are active.
 
+## 2026-10 panel follow-ups: hide "Clear" when inert, auto-refresh dynamic sections
+
+Two more gaps surfaced after the scaling work above:
+
+- **"Clear" showed even when nothing was active.** Fixed by adding
+  `LayerPanelCallbacks.hasActiveLayers()` (backed by `activeIds.size > 0`)
+  and toggling the button's `display` in `render()`. The button itself is
+  still created once in `createDom()` (its own click handler never needs
+  rebinding) — `render()` just flips visibility on the existing element
+  rather than recreating it.
+- **Dynamic sections ("Variables", "Procedures", any custom provider) went
+  stale.** The panel only ever recomputed on events it already knew about
+  (toggling a checkbox, a manual-layer change) — there was no listener on
+  the main workspace itself, so a newly-created (or deleted) variable/
+  procedure just didn't show up until some unrelated interaction happened
+  to trigger a re-render. Considered a manual "refresh" button, rejected
+  it as a workaround rather than a fix (asks the user to remember to click
+  something every time the project changes, which undercuts the premise
+  of a panel that's supposed to reflect the project).
+  **Fix:** `LayersPlugin` registers its own `mainWorkspace.addChangeListener`
+  — separate from `SyncEngine`'s internal one, since "the panel's layer
+  listing might be stale" is a different concern from "the mirrored
+  content needs reconciling" — reacting to `BLOCK_CREATE`, `BLOCK_DELETE`,
+  `VAR_CREATE`, `VAR_DELETE`, `VAR_RENAME`, and `BLOCK_CHANGE` only when
+  `element === 'field'` (covers a procedure's `NAME` field or a variable
+  dropdown being repointed, without re-rendering on every comment/
+  collapse/mutation change too). `BLOCK_MOVE` is deliberately excluded —
+  reconnecting or repositioning a block doesn't change which distinct keys
+  exist in the project. Debounced through a microtask
+  (`schedulePanelRefresh`), the same pattern `SyncEngine.scheduleReconcile`
+  already uses, so a burst of events (e.g. deleting a multi-block stack
+  fires one `BLOCK_DELETE` per block) collapses into a single `render()`.
+  Deletions were explicitly called out as needing to work — they do, since
+  `BLOCK_DELETE` is in the trigger set the same as `BLOCK_CREATE`.
+- **Known minor gap, not fixed:** if an active dynamic layer's last
+  matching block is deleted, `activeIds` silently keeps that now-defunct
+  id (e.g. `dynamic:variable:score`) — it just stops rendering a row since
+  `DynamicSource.getLayers()` no longer lists a key nothing produces. If a
+  variable with the same name is ever recreated, it would come back
+  "pre-activated" without the user having re-checked it. Rare and mostly
+  harmless (worst case: that layer mirrors into the layer workspace again
+  on its own), not worth the bookkeeping to prune proactively right now.
+
 ## Known limitations (v2)
 
 - **No grafting onto hidden context.** A new block created in the layer

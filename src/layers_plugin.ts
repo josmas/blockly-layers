@@ -30,6 +30,22 @@ import {
 import {ManualLayerContextMenu} from './manual_layer_context_menu';
 
 /**
+ * Main-workspace event types that can change what a dynamic section lists
+ * (a new/deleted block, a created/deleted/renamed variable) or how an
+ * existing row should read (a procedure or variable field being renamed).
+ * `BLOCK_MOVE` is deliberately excluded — reconnecting or repositioning a
+ * block doesn't change which distinct keys exist in the project, only
+ * `SyncEngine`'s separate, already-registered listener cares about that.
+ */
+const PANEL_REFRESH_EVENT_TYPES = new Set<string>([
+  Blockly.Events.BLOCK_CREATE,
+  Blockly.Events.BLOCK_DELETE,
+  Blockly.Events.VAR_CREATE,
+  Blockly.Events.VAR_DELETE,
+  Blockly.Events.VAR_RENAME,
+]);
+
+/**
  * Lets a project author organize a large workspace into named "layers" —
  * Photoshop-style, combinable, checkbox-toggled groups of top-level stacks
  * — drawn from three sources: layers the author manually assigns stacks to
@@ -50,6 +66,15 @@ export class LayersPlugin {
   private readonly panel: LayerPanel;
   private readonly layerWorkspaceController: LayerWorkspaceController;
   private readonly contextMenu: ManualLayerContextMenu;
+  private panelRefreshQueued = false;
+
+  private readonly onMainWorkspaceEvent = (event: Blockly.Events.Abstract) => {
+    const isFieldChange =
+      event.type === Blockly.Events.BLOCK_CHANGE &&
+      (event as Blockly.Events.BlockChange).element === 'field';
+    if (!PANEL_REFRESH_EVENT_TYPES.has(event.type) && !isFieldChange) return;
+    this.schedulePanelRefresh();
+  };
 
   /**
    * @param workspace The main, always-visible workspace to attach to.
@@ -89,6 +114,7 @@ export class LayersPlugin {
       this.getDesiredTopBlockIds(),
     );
     this.contextMenu = new ManualLayerContextMenu(workspace, this.manualSource);
+    this.workspace.addChangeListener(this.onMainWorkspaceEvent);
   }
 
   /** Initializes the plugin: registers persistence, the context menu, and the panel. */
@@ -100,6 +126,7 @@ export class LayersPlugin {
 
   /** Disposes of the plugin and the layer workspace, if one was created. */
   dispose() {
+    this.workspace.removeChangeListener(this.onMainWorkspaceEvent);
     this.layerWorkspaceController.dispose();
     this.contextMenu.dispose();
     this.panel.dispose();
@@ -205,6 +232,21 @@ export class LayersPlugin {
       console.error('blockly-layers: failed to compute layers for a section', e);
       return [];
     }
+  }
+
+  /**
+   * Debounces panel refreshes from main-workspace events through a
+   * microtask, the same way `SyncEngine` batches its own reconciliation, so
+   * a burst of events from one user action (e.g. deleting a stack with
+   * several blocks in it) collapses into a single `render()` call.
+   */
+  private schedulePanelRefresh() {
+    if (this.panelRefreshQueued) return;
+    this.panelRefreshQueued = true;
+    Promise.resolve().then(() => {
+      this.panelRefreshQueued = false;
+      this.panel.render();
+    });
   }
 
   private getDesiredTopBlockIds(): Set<string> {
