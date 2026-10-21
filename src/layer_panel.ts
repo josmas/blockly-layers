@@ -86,6 +86,20 @@ Blockly.Css.register(`
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    flex: 1 1 auto;
+  }
+  .blockly-layers-panel-remove-btn {
+    flex: 0 0 auto;
+    border: none;
+    background: none;
+    cursor: pointer;
+    font-size: 0.85rem;
+    line-height: 1;
+    padding: 0 2px;
+    color: #bbb;
+  }
+  .blockly-layers-panel-remove-btn:hover {
+    color: #c00;
   }
 `);
 
@@ -99,6 +113,8 @@ export interface LayerPanelSection {
    * manual layer group, so "Layers" doesn't appear twice in a row.
    */
   headerless?: boolean;
+  /** If set, every row in this section gets a remove button that calls this. */
+  onRemove?: (layerId: string) => void;
 }
 
 export interface LayerPanelCallbacks {
@@ -159,7 +175,7 @@ export class LayerPanel implements Blockly.IPositionable {
     for (const section of this.callbacks.getSections()) {
       if (section.headerless) {
         for (const layer of section.layers) {
-          this.bodyDiv.appendChild(this.createRow(layer));
+          this.bodyDiv.appendChild(this.createRow(layer, section.onRemove));
         }
         continue;
       }
@@ -251,12 +267,15 @@ export class LayerPanel implements Blockly.IPositionable {
     container.appendChild(sectionHeader);
 
     for (const layer of section.layers) {
-      container.appendChild(this.createRow(layer));
+      container.appendChild(this.createRow(layer, section.onRemove));
     }
     return container;
   }
 
-  private createRow(layer: LayerDefinition): HTMLElement {
+  private createRow(
+    layer: LayerDefinition,
+    onRemove?: (layerId: string) => void,
+  ): HTMLElement {
     const row = document.createElement('label');
     Blockly.utils.dom.addClass(row, 'blockly-layers-panel-row');
 
@@ -290,6 +309,28 @@ export class LayerPanel implements Blockly.IPositionable {
       () => this.callbacks.onToggle(layer.id, checkbox.checked),
     );
     this.rowBoundEvents.push(changeEvent);
+
+    if (onRemove) {
+      const removeButton = document.createElement('button');
+      removeButton.type = 'button';
+      Blockly.utils.dom.addClass(removeButton, 'blockly-layers-panel-remove-btn');
+      removeButton.textContent = '×';
+      removeButton.title = `Remove ${layer.name}`;
+      const clickEvent = Blockly.browserEvents.conditionalBind(
+        removeButton,
+        'click',
+        this,
+        (e: Event) => {
+          // The row is a <label>; without this, clicking the remove button
+          // would also toggle the checkbox it's wrapping.
+          e.preventDefault();
+          e.stopPropagation();
+          onRemove(layer.id);
+        },
+      );
+      this.rowBoundEvents.push(clickEvent);
+      row.appendChild(removeButton);
+    }
 
     return row;
   }

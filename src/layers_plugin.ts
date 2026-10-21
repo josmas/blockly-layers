@@ -171,6 +171,13 @@ export class LayersPlugin {
         title: this.manualSource.sectionTitle,
         layers: this.safeGetLayers(this.manualSource),
         headerless: true,
+        onRemove: (layerId) => {
+          const layer = this.manualSource
+            .getLayers()
+            .find((l) => l.id === layerId);
+          if (layer && !window.confirm(`Remove layer "${layer.name}"?`)) return;
+          this.removeManualLayer(layerId);
+        },
       },
     ];
     for (const source of this.dynamicSources) {
