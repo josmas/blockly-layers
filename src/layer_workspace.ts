@@ -38,19 +38,19 @@ export class LayerWorkspaceController {
 
   /**
    * @param primaryWorkspace The always-visible, full project workspace.
-   * @param getActiveTypes Returns the block types currently selected by the
-   *     active layers.
+   * @param getDesiredTopBlockIds Returns the ids of every top-level stack
+   *     that should currently be mirrored, from all active layers' sources.
    */
   constructor(
     private readonly primaryWorkspace: Blockly.WorkspaceSvg,
-    private readonly getActiveTypes: () => Set<string>,
+    private readonly getDesiredTopBlockIds: () => Set<string>,
   ) {
-    this.syncEngine = new SyncEngine(primaryWorkspace, getActiveTypes);
+    this.syncEngine = new SyncEngine(primaryWorkspace, getDesiredTopBlockIds);
   }
 
   /** Creates/shows/hides the layer workspace to match the active layers. */
   refresh() {
-    const active = this.getActiveTypes();
+    const active = this.getDesiredTopBlockIds();
     if (!this.layerWorkspace && active.size === 0) {
       return;
     }
@@ -101,6 +101,18 @@ export class LayerWorkspaceController {
       zoom: { controls: true, wheel: true, startScale: 1 },
     });
     window.addEventListener("resize", this.onWindowResize);
+
+    // Blockly.inject() unconditionally makes the workspace it just created
+    // Blockly's global "main workspace" (used internally for dropdown/
+    // widget-div positioning, keyboard navigation, and toolbox chaff
+    // handling) — there's no public option to opt out. It restores this
+    // itself on 'focusin', so replay that against the real primary
+    // workspace's injection div to put things back the way they should be;
+    // otherwise those internal singletons stay pointed at the layer
+    // workspace until the user happens to click into the primary one.
+    this.primaryWorkspace
+      .getInjectionDiv()
+      .dispatchEvent(new Event("focusin", { bubbles: true }));
 
     this.syncEngine.attachToLayerWorkspace(this.layerWorkspace);
   }

@@ -5,22 +5,23 @@
  */
 
 /**
- * @fileoverview A floating, Photoshop-style panel listing every configured
- * layer with a checkbox to show/hide it. Modeled on
+ * @fileoverview A floating, Photoshop-style panel listing every layer,
+ * grouped into sections by source (manual, each dynamic provider, static
+ * filters), with a checkbox to show/hide each one. Modeled on
  * `@blockly/workspace-search`'s `WorkspaceSearch`: an HTML overlay
  * registered with the workspace's `ComponentManager` as `IPositionable` so
  * Blockly repositions it automatically.
  */
-import * as Blockly from "blockly/core";
+import * as Blockly from 'blockly/core';
 
-import type { LayerDefinition } from "./layer_types";
+import type {LayerDefinition} from './layer_types';
 
 Blockly.Css.register(`
   .blockly-layers-panel {
     position: absolute;
     display: flex;
     flex-direction: column;
-    min-width: 160px;
+    min-width: 180px;
     max-height: 60%;
     overflow-y: auto;
     background: #fff;
@@ -35,6 +36,29 @@ Blockly.Css.register(`
     padding: 6px 10px;
     font-weight: bold;
     border-bottom: 1px solid #eee;
+  }
+  .blockly-layers-panel-section-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 10px 2px;
+    font-size: 0.7rem;
+    font-weight: bold;
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+    color: #777;
+  }
+  .blockly-layers-panel-add-btn {
+    border: none;
+    background: none;
+    cursor: pointer;
+    font-size: 0.9rem;
+    line-height: 1;
+    padding: 0 4px;
+    color: #777;
+  }
+  .blockly-layers-panel-add-btn:hover {
+    color: #000;
   }
   .blockly-layers-panel-row {
     display: flex;
@@ -59,16 +83,25 @@ Blockly.Css.register(`
   }
 `);
 
+/** A group of layers shown together under one heading in the panel. */
+export interface LayerPanelSection {
+  title: string;
+  layers: LayerDefinition[];
+  /** If set, an "add" button is rendered next to this section's heading. */
+  onAdd?: () => void;
+}
+
 export interface LayerPanelCallbacks {
-  getLayers(): LayerDefinition[];
+  getSections(): LayerPanelSection[];
   isActive(layerId: string): boolean;
   onToggle(layerId: string, active: boolean): void;
 }
 
 export class LayerPanel implements Blockly.IPositionable {
-  id = "layersPanel";
+  id = 'layersPanel';
 
   private htmlDiv: HTMLDivElement | null = null;
+  private bodyDiv: HTMLDivElement | null = null;
   private readonly boundEvents: Blockly.browserEvents.Data[] = [];
 
   constructor(
@@ -88,29 +121,23 @@ export class LayerPanel implements Blockly.IPositionable {
   }
 
   dispose() {
-    for (const event of this.boundEvents) {
-      Blockly.browserEvents.unbind(event);
-    }
-    this.boundEvents.length = 0;
+    this.unbindAll();
     if (this.htmlDiv) {
       Blockly.utils.dom.removeNode(this.htmlDiv);
       this.htmlDiv = null;
+      this.bodyDiv = null;
     }
   }
 
-  /** Rebuilds the layer rows. Call after layers are added/removed/updated. */
+  /** Rebuilds every section and row. Call whenever layers may have changed. */
   render() {
-    if (!this.htmlDiv) return;
-    for (const event of this.boundEvents) {
-      Blockly.browserEvents.unbind(event);
-    }
-    this.boundEvents.length = 0;
+    if (!this.bodyDiv) return;
+    this.unbindAll();
+    this.bodyDiv.replaceChildren();
 
-    const rows = this.htmlDiv.querySelectorAll(".blockly-layers-panel-row");
-    rows.forEach((row) => row.remove());
-
-    for (const layer of this.callbacks.getLayers()) {
-      this.htmlDiv.appendChild(this.createRow(layer));
+    for (const section of this.callbacks.getSections()) {
+      if (!section.layers.length && !section.onAdd) continue;
+      this.bodyDiv.appendChild(this.createSection(section));
     }
   }
 
@@ -124,61 +151,106 @@ export class LayerPanel implements Blockly.IPositionable {
   ) {
     if (!this.htmlDiv) return;
     if (this.workspace.RTL) {
-      this.htmlDiv.style.left = metrics.absoluteMetrics.left + 10 + "px";
+      this.htmlDiv.style.left = metrics.absoluteMetrics.left + 10 + 'px';
     } else {
-      this.htmlDiv.style.right = "10px";
+      this.htmlDiv.style.right = '10px';
     }
-    this.htmlDiv.style.top = metrics.absoluteMetrics.top + 10 + "px";
+    this.htmlDiv.style.top = metrics.absoluteMetrics.top + 10 + 'px';
   }
 
   private createDom() {
     const injectionDiv = this.workspace.getInjectionDiv();
-    this.htmlDiv = document.createElement("div");
-    Blockly.utils.dom.addClass(this.htmlDiv, "blockly-layers-panel");
+    this.htmlDiv = document.createElement('div');
+    Blockly.utils.dom.addClass(this.htmlDiv, 'blockly-layers-panel');
 
-    const header = document.createElement("div");
-    Blockly.utils.dom.addClass(header, "blockly-layers-panel-header");
-    header.textContent = "Layers";
+    const header = document.createElement('div');
+    Blockly.utils.dom.addClass(header, 'blockly-layers-panel-header');
+    header.textContent = 'Layers';
     this.htmlDiv.appendChild(header);
+
+    this.bodyDiv = document.createElement('div');
+    this.htmlDiv.appendChild(this.bodyDiv);
 
     injectionDiv.insertBefore(this.htmlDiv, this.workspace.getParentSvg());
   }
 
-  private createRow(layer: LayerDefinition): HTMLElement {
-    const row = document.createElement("label");
-    Blockly.utils.dom.addClass(row, "blockly-layers-panel-row");
+  private createSection(section: LayerPanelSection): HTMLElement {
+    const container = document.createElement('div');
 
-    const checkbox = document.createElement("input");
-    checkbox.type = "checkbox";
+    const sectionHeader = document.createElement('div');
+    Blockly.utils.dom.addClass(
+      sectionHeader,
+      'blockly-layers-panel-section-header',
+    );
+    const title = document.createElement('span');
+    title.textContent = section.title;
+    sectionHeader.appendChild(title);
+
+    if (section.onAdd) {
+      const addButton = document.createElement('button');
+      addButton.type = 'button';
+      Blockly.utils.dom.addClass(addButton, 'blockly-layers-panel-add-btn');
+      addButton.textContent = '+';
+      addButton.title = `New ${section.title.toLowerCase().replace(/s$/, '')}`;
+      const clickEvent = Blockly.browserEvents.conditionalBind(
+        addButton,
+        'click',
+        this,
+        () => section.onAdd?.(),
+      );
+      this.boundEvents.push(clickEvent);
+      sectionHeader.appendChild(addButton);
+    }
+    container.appendChild(sectionHeader);
+
+    for (const layer of section.layers) {
+      container.appendChild(this.createRow(layer));
+    }
+    return container;
+  }
+
+  private createRow(layer: LayerDefinition): HTMLElement {
+    const row = document.createElement('label');
+    Blockly.utils.dom.addClass(row, 'blockly-layers-panel-row');
+
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
     checkbox.checked = this.callbacks.isActive(layer.id);
     row.appendChild(checkbox);
 
     if (layer.color) {
-      const swatch = document.createElement("span");
-      Blockly.utils.dom.addClass(swatch, "blockly-layers-panel-swatch");
+      const swatch = document.createElement('span');
+      Blockly.utils.dom.addClass(swatch, 'blockly-layers-panel-swatch');
       swatch.style.background = layer.color;
       row.appendChild(swatch);
     }
 
     if (layer.icon) {
-      const icon = document.createElement("span");
+      const icon = document.createElement('span');
       icon.textContent = layer.icon;
       row.appendChild(icon);
     }
 
-    const label = document.createElement("span");
-    Blockly.utils.dom.addClass(label, "blockly-layers-panel-label");
+    const label = document.createElement('span');
+    Blockly.utils.dom.addClass(label, 'blockly-layers-panel-label');
     label.textContent = layer.name;
     row.appendChild(label);
 
     const changeEvent = Blockly.browserEvents.conditionalBind(
       checkbox,
-      "change",
+      'change',
       this,
       () => this.callbacks.onToggle(layer.id, checkbox.checked),
     );
     this.boundEvents.push(changeEvent);
 
     return row;
+  }
+
+  private unbindAll() {
+    for (const event of this.boundEvents) {
+      Blockly.browserEvents.unbind(event);
+    }
+    this.boundEvents.length = 0;
   }
 }

@@ -25,8 +25,6 @@
  */
 import * as Blockly from "blockly/core";
 
-import { findRootMatches } from "./block_matcher";
-
 const STRUCTURAL_EVENT_TYPES = new Set<string>([
   Blockly.Events.BLOCK_CREATE,
   Blockly.Events.BLOCK_DELETE,
@@ -86,12 +84,13 @@ export class SyncEngine {
 
   /**
    * @param mainWorkspace The always-visible, full project workspace.
-   * @param getActiveTypes Returns the block types currently selected by the
-   *     active layers. Called fresh on every reconciliation pass.
+   * @param getDesiredTopBlockIds Returns the ids of every top-level stack
+   *     that should currently be mirrored, as computed by the active
+   *     layers' sources. Called fresh on every reconciliation pass.
    */
   constructor(
     private readonly mainWorkspace: Blockly.WorkspaceSvg,
-    private readonly getActiveTypes: () => Set<string>,
+    private readonly getDesiredTopBlockIds: () => Set<string>,
   ) {
     this.mainWorkspace.addChangeListener(this.onMainEvent);
   }
@@ -216,10 +215,20 @@ export class SyncEngine {
       }
     }
 
-    // New roots, and structural drift in existing roots.
+    // New roots, and structural drift in existing roots. A root already
+    // tracked in rootSnapshot is NEVER "new" — even if, for whatever
+    // transient reason, a lookup in main doesn't find it right now —
+    // because pushing it again would ask serialization.blocks.append for an
+    // id that's already taken in main. Blockly doesn't error on that; it
+    // silently mints a fresh id for the duplicate (see Block's constructor),
+    // which then collides on name with the original and gets auto-renamed —
+    // i.e. exactly a phantom second procedure/variable/etc. appearing.
     for (const layerRoot of layerWorkspace.getTopBlocks(false)) {
       const rootId = layerRoot.id;
-      if (!this.mainWorkspace.getBlockById(rootId)) {
+      if (
+        !this.rootSnapshot.has(rootId) &&
+        !this.mainWorkspace.getBlockById(rootId)
+      ) {
         this.pushNewRootToMain(layerRoot);
         continue;
       }
@@ -234,10 +243,7 @@ export class SyncEngine {
     layerWorkspace: Blockly.WorkspaceSvg,
     honorManuallyAdded: boolean,
   ) {
-    const activeTypes = this.getActiveTypes();
-    const desiredRootIds = new Set(
-      findRootMatches(this.mainWorkspace, activeTypes).map((b) => b.id),
-    );
+    const desiredRootIds = new Set(this.getDesiredTopBlockIds());
     if (honorManuallyAdded) {
       for (const id of this.manuallyAdded) {
         if (this.mainWorkspace.getBlockById(id)) desiredRootIds.add(id);

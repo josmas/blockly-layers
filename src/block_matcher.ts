@@ -5,67 +5,39 @@
  */
 
 /**
- * @fileoverview Pure helpers for deciding which blocks belong to the
- * currently active set of layers. No Blockly workspace mutation happens
- * here; these are read-only queries used by the sync engine.
+ * @fileoverview Pure helpers behind the static, block-type-list layer
+ * source. No Blockly workspace mutation happens here; these are read-only
+ * queries used by {@link StaticTypeSource}.
  */
-import type * as Blockly from "blockly/core";
-
-import type { LayerDefinition } from "./layer_types";
+import type * as Blockly from 'blockly/core';
 
 /**
- * Computes the union of block types belonging to every currently-active
- * layer.
- *
- * @param layers All configured layers.
- * @param activeIds The ids of the layers that are currently checked.
- * @returns The set of block type names that should be mirrored.
+ * Whether `topBlock`'s stack — the block itself plus everything nested or
+ * chained below it — contains at least one block whose type is in
+ * `activeTypes`. The whole stack is the unit of membership: a single
+ * matching block anywhere inside pulls in the entire top-level stack, not
+ * just the matching block's own subtree.
  */
-export function getActiveBlockTypes(
-  layers: LayerDefinition[],
-  activeIds: ReadonlySet<string>,
-): Set<string> {
-  const types = new Set<string>();
-  for (const layer of layers) {
-    if (!activeIds.has(layer.id)) continue;
-    for (const type of layer.blockTypes) {
-      types.add(type);
-    }
+export function stackMatchesTypes(
+  topBlock: Blockly.Block,
+  activeTypes: ReadonlySet<string>,
+): boolean {
+  if (activeTypes.size === 0) return false;
+  for (const block of topBlock.getDescendants(false)) {
+    if (activeTypes.has(block.type)) return true;
   }
-  return types;
+  return false;
 }
 
 /**
- * Finds the topmost block in each connected chain whose type is in
- * `activeTypes`, walking down from the workspace's top blocks. Once a match
- * is found along a branch, its descendants are not searched separately —
- * the whole matched subtree is treated as belonging to that one root, even
- * if some of its descendants are also, independently, of an active type.
- * This avoids mirroring the same block twice under two different roots.
- *
- * @param workspace The workspace to search.
- * @param activeTypes The set of block types that are currently active.
- * @returns The root blocks that should be mirrored, in workspace order.
+ * Every top-level stack in `workspace` that matches {@link stackMatchesTypes}.
  */
-export function findRootMatches(
+export function getMatchingTopBlocks(
   workspace: Blockly.Workspace,
   activeTypes: ReadonlySet<string>,
 ): Blockly.Block[] {
-  const roots: Blockly.Block[] = [];
-  if (activeTypes.size === 0) return roots;
-
-  const visit = (block: Blockly.Block) => {
-    if (activeTypes.has(block.type)) {
-      roots.push(block);
-      return;
-    }
-    for (const child of block.getChildren(true)) {
-      visit(child);
-    }
-  };
-
-  for (const topBlock of workspace.getTopBlocks(true)) {
-    visit(topBlock);
-  }
-  return roots;
+  if (activeTypes.size === 0) return [];
+  return workspace
+    .getTopBlocks(false)
+    .filter((block) => stackMatchesTypes(block, activeTypes));
 }

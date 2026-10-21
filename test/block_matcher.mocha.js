@@ -8,8 +8,8 @@ const chai = require("chai");
 const assert = chai.assert;
 const Blockly = require("blockly");
 const {
-  findRootMatches,
-  getActiveBlockTypes,
+  stackMatchesTypes,
+  getMatchingTopBlocks,
 } = require("../src/block_matcher");
 
 suite("block_matcher", function () {
@@ -44,73 +44,66 @@ suite("block_matcher", function () {
     delete Blockly.Blocks["test_leaf"];
   });
 
-  suite("getActiveBlockTypes", function () {
-    test("unions block types from active layers only", function () {
-      const layers = [
-        { id: "a", name: "A", blockTypes: ["test_stack_a"] },
-        { id: "b", name: "B", blockTypes: ["test_stack_b", "test_leaf"] },
-      ];
-      const types = getActiveBlockTypes(layers, new Set(["b"]));
-      assert.sameMembers([...types], ["test_stack_b", "test_leaf"]);
+  suite("stackMatchesTypes", function () {
+    test("returns false when no types are active", function () {
+      const block = this.workspace.newBlock("test_stack_a");
+      assert.isFalse(stackMatchesTypes(block, new Set()));
     });
 
-    test("returns an empty set when no layers are active", function () {
-      const layers = [{ id: "a", name: "A", blockTypes: ["test_stack_a"] }];
-      const types = getActiveBlockTypes(layers, new Set());
-      assert.isEmpty([...types]);
+    test("returns true when the block itself matches", function () {
+      const block = this.workspace.newBlock("test_stack_a");
+      assert.isTrue(stackMatchesTypes(block, new Set(["test_stack_a"])));
+    });
+
+    test("returns true when a nested block matches", function () {
+      const outer = this.workspace.newBlock("test_stack_a");
+      const inner = this.workspace.newBlock("test_stack_b");
+      outer.getInput("DO").connection.connect(inner.previousConnection);
+
+      assert.isTrue(stackMatchesTypes(outer, new Set(["test_stack_b"])));
+    });
+
+    test("returns true when a chained next-block matches", function () {
+      const first = this.workspace.newBlock("test_stack_a");
+      const second = this.workspace.newBlock("test_leaf");
+      first.nextConnection.connect(second.previousConnection);
+
+      assert.isTrue(stackMatchesTypes(first, new Set(["test_leaf"])));
+    });
+
+    test("returns false when nothing in the stack matches", function () {
+      const block = this.workspace.newBlock("test_leaf");
+      assert.isFalse(stackMatchesTypes(block, new Set(["test_stack_a"])));
     });
   });
 
-  suite("findRootMatches", function () {
+  suite("getMatchingTopBlocks", function () {
     test("returns an empty list when no types are active", function () {
       this.workspace.newBlock("test_stack_a");
-      const matches = findRootMatches(this.workspace, new Set());
-      assert.isEmpty(matches);
+      assert.isEmpty(getMatchingTopBlocks(this.workspace, new Set()));
     });
 
-    test("returns a matching top-level block", function () {
-      const block = this.workspace.newBlock("test_stack_a");
-      const matches = findRootMatches(
+    test("returns the whole top-level stack, not just the matching nested block", function () {
+      const outer = this.workspace.newBlock("test_stack_a");
+      const inner = this.workspace.newBlock("test_stack_b");
+      outer.getInput("DO").connection.connect(inner.previousConnection);
+
+      const matches = getMatchingTopBlocks(
+        this.workspace,
+        new Set(["test_stack_b"]),
+      );
+      assert.deepEqual(matches, [outer]);
+    });
+
+    test("does not return unrelated top-level stacks", function () {
+      const matching = this.workspace.newBlock("test_stack_a");
+      this.workspace.newBlock("test_leaf");
+
+      const matches = getMatchingTopBlocks(
         this.workspace,
         new Set(["test_stack_a"]),
       );
-      assert.deepEqual(matches, [block]);
-    });
-
-    test("finds a match nested inside a non-matching container", function () {
-      const outer = this.workspace.newBlock("test_stack_a");
-      const inner = this.workspace.newBlock("test_stack_b");
-      outer.getInput("DO").connection.connect(inner.previousConnection);
-
-      const matches = findRootMatches(
-        this.workspace,
-        new Set(["test_stack_b"]),
-      );
-      assert.deepEqual(matches, [inner]);
-    });
-
-    test("finds a match later in a statement chain", function () {
-      const first = this.workspace.newBlock("test_stack_a");
-      const second = this.workspace.newBlock("test_stack_b");
-      first.nextConnection.connect(second.previousConnection);
-
-      const matches = findRootMatches(
-        this.workspace,
-        new Set(["test_stack_b"]),
-      );
-      assert.deepEqual(matches, [second]);
-    });
-
-    test("does not separately report a block already covered by a matching ancestor", function () {
-      const outer = this.workspace.newBlock("test_stack_a");
-      const inner = this.workspace.newBlock("test_stack_b");
-      outer.getInput("DO").connection.connect(inner.previousConnection);
-
-      const matches = findRootMatches(
-        this.workspace,
-        new Set(["test_stack_a", "test_stack_b"]),
-      );
-      assert.deepEqual(matches, [outer]);
+      assert.deepEqual(matches, [matching]);
     });
   });
 });

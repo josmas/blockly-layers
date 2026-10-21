@@ -1,160 +1,238 @@
 # Design Decisions
 
 A log of the decisions made while designing and building the layers plugin,
-why they were made, what's intentionally left unhandled in this first pass,
-and what's worth doing next.
+why they were made, what's intentionally left unhandled, and what's worth
+doing next. Organized chronologically: v1 shipped first; v2 is a deliberate
+pivot after using v1 surfaced that its core concept didn't serve the actual
+goal. Sections below are marked accordingly — v1 content marked
+**(superseded)** is kept for history, not as current guidance.
 
-## Core concept
+## V2 pivot (2026-10-21): project-organization layers
 
-- **Separate filtered workspace, not hide-in-place.** The main workspace
-  always shows every block and stays editable. Checking a layer reveals a
-  second, fully-interactive workspace showing just the matching blocks,
-  rather than dimming/hiding blocks in place on the same canvas. Chosen
-  because the ask was explicitly for a Photoshop-style isolated view, not an
-  in-place filter.
-- **Layer = explicit block-type list**, configured by the installer
-  (`{id, name, blockTypes, color?, icon?}`). Blockly has no built-in notion
-  of block "category" (block style like `loop_blocks` is purely cosmetic,
-  not semantic), so there's nothing reliable to infer layers from — the
-  installer has to say what belongs to each layer.
-- **One shared layer workspace, not one per layer.** Checking multiple
-  layers shows the *union* of their block types in a single secondary
-  workspace, rather than spawning a workspace per layer.
-- **Layers are combinable (checkboxes), not exclusive (radio).** Matches the
-  "layers panel" mental model more than a single-select filter would.
-- **Nested blocks come along whole.** If a block matches an active layer,
-  its entire subtree is mirrored regardless of its descendants' own types
-  (e.g. an `if` nested in a `repeat` shows up when only "Loops" is active).
-  Avoids showing broken-looking stacks with gaps where non-matching children
-  would otherwise be pruned out.
-- **The layer workspace has a full, unfiltered toolbox.** Any block type can
-  be dragged in there, not just the active layer's types — simpler than
-  maintaining a second, layer-scoped toolbox, and avoids having to decide
-  what a layer-scoped toolbox should contain when multiple layers are
-  active at once.
-- **Layout: auto-stack once, then free-drag persists.** A block is placed in
-  a simple vertical stack the first time it appears in the layer workspace;
-  after that, the user can drag it anywhere, and that position is
-  independent of (and doesn't sync with) its coordinates in the main
-  workspace, for as long as it stays mirrored.
-- **Both workspaces are independently editable, both directions sync.**
-  Field edits, new blocks, deletions, and reconnections in either workspace
-  propagate to the other.
+V1 defined layers as installer-configured block-*type* lists (Loops, Logic,
+Variables, Functions). After using it, it became clear this doesn't serve
+the actual goal: **organizing large projects (hundreds to thousands of
+blocks) into meaningful parts**. Block type doesn't correlate with
+feature/subsystem — a game's inventory system uses loops, logic, and
+variables all mixed together, so a "Loops" layer can never isolate it. Real
+Photoshop layers aren't a fixed taxonomy either; they're author-defined,
+per-document structure.
 
-## Architecture decisions
+The design now rests on three combinable layer sources:
 
-- **Shared block IDs across both workspaces.** Block IDs in Blockly are only
-  unique *within* a single workspace, so a mirrored block can keep the exact
-  same ID in both the main and layer workspaces. This is the key
-  simplification: every piece of sync bookkeeping is keyed off a plain block
-  ID instead of a separate cross-workspace ID-mapping table.
-- **Two propagation paths, chosen per event type:**
-  - *Cheap direct relay* for field/value-only changes (`BLOCK_CHANGE`,
-    `VAR_CREATE`/`VAR_DELETE`/`VAR_RENAME`/`VAR_TYPE_CHANGE`): clone the
-    event via `Blockly.Events.fromJson(json, targetWorkspace)` and call
-    `.run(true)` — the same trick `@blockly/workspace-minimap` uses for its
-    one-way sync, reused here because `fromJson` resolves everything
-    against whichever workspace it's handed, regardless of where the event
-    came from.
-  - *Debounced, declarative diff-and-reconcile* for structural changes
-    (`BLOCK_CREATE`/`BLOCK_DELETE`/`BLOCK_MOVE`): rather than trying to
-    replay every structural event type bespoke, each mirrored "root" block's
-    serialized JSON (via `Blockly.serialization.blocks.save`, which ignores
-    coordinates by default) is compared against what was last synced: a
-    match means skip, a difference means re-sync that one root. This is
-    simpler and more robust than hand-patching individual connections, and —
-    critically — it only touches roots that actually changed, which is what
-    lets a user's dragged position in the layer workspace survive unrelated
-    edits elsewhere.
-- **Position-preserving replace.** When a root's content has drifted, the
-  engine captures its current on-screen position, disposes the stale copy,
-  re-appends fresh content from the authoritative side, and restores the
-  position — applied symmetrically in both directions. This is what makes
-  "free-drag persists" true even though structural syncing works by
-  dispose-and-recreate rather than incremental patching.
-- **"Manually added" roots are exempt from type-based pruning, but only
-  until the next deliberate layer-selection change.** A block created
-  directly in the layer workspace (not matching any active layer's types)
-  survives the reconciliation pass that registers it, so it doesn't flash
-  into view and immediately vanish. But the exemption is *not* permanent:
-  an explicit checkbox toggle (`notifyActiveLayersChanged`) re-evaluates
-  every manually-added block by type and drops the exemption for any that
-  don't match the new selection. (An earlier version of this made the
-  exemption permanent — a block dropped into an unrelated layer's workspace
-  out of curiosity would then follow that user around under every future
-  layer selection forever, which is the bug reported and fixed on
-  2026-10-10.)
-- **New standalone blocks in the layer workspace become new top-level
-  blocks in main.** If a block created in the layer workspace isn't
-  connected to anything already mirrored, it's pushed to main as an
-  unconnected top-level block rather than guessing where in the hidden part
-  of the tree it should attach.
+1. **Manual, author-curated layers** (primary tool) — right-click a
+   top-level stack → "Add to layer...". Persisted with the project.
+2. **Dynamic, auto-derived layers** — one per variable, one per procedure,
+   computed live, no configuration. A `DynamicLayerProvider` extension
+   point lets a host (e.g. MIT App Inventor) supply a custom extractor
+   (e.g. "one layer per component actually used") without the plugin
+   knowing anything about components.
+3. **Installer-configured static layers** — v1's mechanism, kept as a
+   secondary filter, not the primary organizing tool.
+
+**The grouping unit became the whole top-level stack** (an "island": an
+event handler, a procedure def, a variable init — anything that's its own
+entry in `workspace.getTopBlocks()`), not an arbitrary block or sub-stack.
+This was deliberate: it eliminates the nested-match/de-duplication problem
+that most of v1's `block_matcher.ts` existed to solve, since a top-level
+stack can never be nested inside another one. Everything downstream of
+"which top-block ids are desired" (the `SyncEngine` mirroring machinery)
+needed no changes at all — only the computation of *which ids* changed.
+
+## V2 architecture decisions
+
+- **`LayerSource` abstraction** (`src/layer_sources/types.ts`): `kind`
+  (namespaces layer ids as `${kind}:...`), `sectionTitle` (panel heading),
+  `getLayers(workspace)`, `getMembers(workspace, layerId)`. Three
+  implementations — `ManualSource`, `StaticTypeSource`, `DynamicSource`
+  (generic wrapper around a `DynamicLayerProvider`) — let `LayersPlugin`
+  treat all three origins uniformly: `getDesiredTopBlockIds()` just unions
+  `getMembers(...)` over every currently-active layer id, routing each id
+  to its owning source by matching the `${kind}:` prefix.
+- **Static layers redefined as "whole island contains a match."**
+  `StaticTypeSource.getMembers` now returns every top-level stack whose
+  *entire* subtree contains at least one block of a listed type — a
+  behavior change from v1's "extract just the matching block's own
+  subtree," made necessary (and desirable) by whole-stack-as-unit.
+- **Manual layer membership keyed by top-block id**, stored in
+  `ManualSource` as `Map<topBlockId, Set<rawLayerId>>`, mutated via
+  `assign`/`unassign`/`createLayer`/`removeLayer`, all firing a generic
+  `onChange` callback that the panel and sync controller subscribe to
+  independently rather than threading a bespoke callback through every
+  mutation site.
+- **Persistence via Blockly's own serializer registry**
+  (`src/layers_serializer.ts`), not a plugin-owned store. Registers an
+  `ISerializer` under the name `'layers'` with a priority below blocks'
+  (so block ids referenced by membership already exist on load). A
+  `WeakMap<Workspace, ManualSource>` lets the registry — a necessarily
+  global singleton — route save/load/clear to the right `ManualSource` per
+  workspace. This means an installer already calling
+  `Blockly.serialization.workspaces.save/load` gets manual layers for free,
+  while still owning *where* the resulting JSON is stored — matching the
+  explicit ask that persistence mechanics live in the plugin by default,
+  but control of storage stay with the installer long-term.
+  `exportManualLayers()`/`importManualLayers()` are the escape hatch for
+  installers with a custom save/load path that bypasses the registry.
+- **"Add to layer..." via `Blockly.ContextMenuRegistry`**
+  (`src/manual_layer_context_menu.ts`), scoped to blocks, resolving the
+  right-clicked block's top-level ancestor via `block.getRootBlock()` so
+  right-clicking anywhere in a stack works. Menu items are namespaced by
+  `mainWorkspace.id` and gated by a `preconditionFn` checking
+  `scope.block.workspace === mainWorkspace`, since `ContextMenuRegistry` is
+  a single global registry — without this, two `LayersPlugin` instances on
+  the same page (or the main vs. the layer workspace) would see each
+  other's menu items. Deliberately **not** offered in the layer workspace
+  itself — assigning layers from within an already-filtered view was
+  judged a confusing nested concept not worth supporting yet.
+- **Dynamic key extraction reuses existing Blockly idioms** rather than
+  inventing new ones: `byVariableProvider` scans `block.inputList` for any
+  `Blockly.FieldVariable` (covers `variables_get`/`variables_set` and any
+  other block with a variable dropdown, e.g. loop blocks' own `VAR` field,
+  for free — no per-block-type list to maintain). `byProcedureProvider`
+  checks `block.type.startsWith('procedures_def'|'procedures_call')` and
+  reads `getFieldValue('NAME')` — confirmed by reading Blockly core that
+  call blocks' `getProcedureCall()` is implemented as exactly
+  `this.getFieldValue('NAME')`, so def and call blocks need no separate
+  branches.
+- **Dynamic layers are never persisted** — recomputed from current project
+  state on every panel render, so there's nothing to serialize and nothing
+  that can go stale relative to the actual project.
+
+## V1 core concept (superseded, kept for history)
+
+- ~~Layer = explicit block-type list, configured by the installer~~ —
+  superseded by the three-source model above; type-based layers still
+  exist as the "static" source but are secondary now.
+- Separate filtered workspace, not hide-in-place; one shared layer
+  workspace (union of active layers); layers combinable via checkboxes;
+  full unfiltered toolbox in the layer workspace; auto-stack-then-free-drag
+  layout; bidirectional editing. **All of these still hold in v2 unchanged.**
+- ~~Nested blocks come along whole~~ — superseded by whole-top-level-stack
+  as the atomic unit, which is a stronger, simpler version of the same
+  underlying intent (never show a fragmented stack).
+
+## V1 sync architecture (reused as-is in v2)
+
+This is why the v1 investment wasn't wasted — none of it needed to change,
+only what feeds it:
+
+- **Shared block IDs across both workspaces.** IDs are only unique *within*
+  one workspace in Blockly core, so a mirrored block keeps the exact same
+  ID in both, letting all bookkeeping be keyed off a plain ID instead of a
+  mapping table.
+- **Two propagation paths:** cheap direct relay for field/variable changes
+  (clone the event via `Blockly.Events.fromJson(json, targetWorkspace)` +
+  `.run(true)`, the `@blockly/workspace-minimap` trick); debounced
+  diff-and-reconcile for structural changes, comparing each mirrored root's
+  serialized JSON against what was last synced and only touching roots that
+  actually changed.
+- **Position-preserving replace**: capture position, dispose stale copy,
+  re-append fresh content, restore position — symmetric in both directions.
 - **Echo-loop prevention via simple boolean guards**
-  (`applyingToMain`/`applyingToLayer`), checked at the top of each
-  workspace's change listener, rather than `Blockly.Events.disable()`/
-  `enable()` globally. Keeps rendering and other event-driven side effects
-  working normally on the target workspace while still preventing our own
-  writes from re-triggering outbound relay.
-- **Panel UI modeled on `@blockly/workspace-search`.** The layer panel is an
-  HTML overlay registered with the workspace's `ComponentManager` as
-  `IPositionable`, so Blockly repositions it automatically on resize instead
-  of the plugin managing its own resize listener.
-- **Layer workspace created lazily, hidden (not disposed) when inactive.**
-  It's created on first-ever layer activation, then just shown/hidden via
-  CSS as layers are toggled, so dragged positions persist across toggles.
-  It's only fully disposed when the plugin itself is disposed.
-- **Layer workspace renders as a fixed bottom dock**
-  (`position: fixed`, `40vh`, appended to `document.body`) by default,
-  rather than depending on the host page's layout — a self-contained
-  default that works regardless of surrounding CSS, overridable via the
-  `.blockly-layer-workspace` class.
-- **CSS injected via `Blockly.Css.register()` at module load time**, the
-  same pattern `@blockly/zoom-to-fit` uses, rather than a manually managed
-  `<style>` tag.
+  (`applyingToMain`/`applyingToLayer`) rather than globally disabling
+  Blockly events.
+- **"Manually added" roots are exempt from pruning only until the next
+  deliberate layer-selection change** — not permanently (a 2026-10-10 bug
+  fix; see git history). The same non-permanent-exemption concept still
+  applies in v2 to blocks created directly in the layer workspace.
+- Panel as an `IPositionable` HTML overlay (`@blockly/workspace-search`
+  pattern); layer workspace created lazily, hidden-not-disposed when
+  inactive, rendered as a fixed bottom dock by default; CSS via
+  `Blockly.Css.register()`.
 
-## Known limitations (V1)
+## 2026-10-21 bug fixes
 
-- **No persistence.** Layer configuration and which layers are checked are
-  not saved across page reloads — that's left to the installer, who can use
-  the `get`/`set` API to wire up their own storage.
+Reported: activating a dynamic "Procedures" layer caused a second, renamed
+procedure to appear in the panel, and the "Components" section (also
+dynamic) vanished and stayed gone after deactivating the layer again.
+
+- **`reconcileFromLayer`'s "is this a new root?" check was too weak.** It
+  decided a layer-workspace top block was "newly created by the user" (and
+  so should be pushed into main as a new block) whenever
+  `!mainWorkspace.getBlockById(rootId)` — a live lookup — rather than
+  checking whether `rootId` was already a tracked, mirrored root. If that
+  reconcile path ever runs for an already-mirrored block (plausible trigger:
+  `Blockly.serialization.blocks.append()` calls
+  `renderManagement.triggerQueuedRenders()` with **no workspace argument**,
+  which flushes Blockly's *global*, cross-workspace render queue —
+  confirmed in core's `render_management.ts` — and that flush calls
+  `block.bumpNeighbours()`, which can itself fire `BLOCK_MOVE` on blocks in
+  a *different* workspace than the one being appended to), the weak check
+  would try to push a duplicate into main with an ID that's already taken.
+  Confirmed in core (`block.ts`'s `Block` constructor): requesting an
+  already-used ID doesn't error, it silently mints a fresh one — so you get
+  a second `procedures_defnoreturn` with the same name, which Blockly's own
+  duplicate-name guard then renames. That's the "second procedure."
+  **Fix:** check `this.rootSnapshot.has(rootId)` first; an already-tracked
+  root is never treated as new, regardless of what a live `getBlockById`
+  lookup momentarily returns.
+- **One section's exception could blank the entire panel.** `LayerPanel.render()`
+  clears all existing section DOM, then calls `getSections()` and iterates
+  the result — but `getSections()` built its whole array eagerly, so if
+  *any* dynamic provider's `getLayers`/`extractKey` threw (plausible under
+  the race above, mid-reconciliation), the error propagated out before any
+  section (including ones after the failing one — "Components" comes after
+  "Procedures" in source order) got appended back, and nothing re-renders
+  those until the next unrelated change. **Fix:** each source's
+  `getLayers()` call is now wrapped individually (`LayersPlugin.safeGetLayers`)
+  so a failure in one section logs to console and renders as empty, instead
+  of taking every other section down with it.
+- **`Blockly.inject()` unconditionally reassigns Blockly's global "main
+  workspace" pointer** (`common.setMainWorkspace`, confirmed in core's
+  `inject.ts`) to whatever workspace it just created — including our layer
+  workspace, which has no public API to opt out of this. That pointer backs
+  dropdown/widget-div positioning, keyboard navigation, and toolbox chaff
+  handling, so until the user happened to click back into the main
+  workspace (which re-claims it via the same `focusin` listener
+  `inject.ts` wires up), those internal singletons stayed pointed at the
+  layer workspace. **Fix:** `LayerWorkspaceController.create()` replays a
+  synthetic `focusin` event on the primary workspace's injection div right
+  after creating the layer workspace, exploiting the same listener Blockly
+  already registers, to claim the pointer back immediately.
+
+## Known limitations (v2)
+
 - **No grafting onto hidden context.** A new block created in the layer
   workspace that isn't connected to an already-mirrored block is added to
-  main as a standalone top-level block, never attached to something outside
-  the current layer view.
-- **Layout isn't pluggable.** Stacking is a hardcoded simple vertical list.
-  It's written as an internal function (not a public option) so it could
-  become configurable later without an API change now.
-- **Sync writes don't participate in undo.** Reconciliation's
-  append/dispose calls use `recordUndo: false`, so a change propagated to
-  the *other* workspace isn't separately undo-able there — only the
-  originating edit is on that workspace's own undo stack.
-- **No automated test coverage of the sync engine itself.** Only the pure
-  `block_matcher` logic (root-match extraction and de-duplication) has unit
-  tests. The bidirectional sync behavior was verified by a successful build
-  plus manual code review, not an automated test, since this session had no
-  browser automation available to drive the interactive playground.
-- **RTL has only basic positioning logic** for the panel and layer
-  workspace; it hasn't been exercised in practice.
-- **Comments and collapsed/disabled states** ride along for free via the
-  `BLOCK_CHANGE` relay, but haven't been explicitly tested.
+  main as a standalone top-level block.
+- **Layout isn't pluggable** — hardcoded vertical stack.
+- **Sync writes don't participate in undo** (`recordUndo: false`).
+- **No automated test coverage of `SyncEngine`, `LayerPanel`, or
+  `LayerWorkspaceController`** — these need a real rendered `WorkspaceSvg`/
+  DOM. Covered instead by the manual playground checklist in `AGENTS.md`.
+  Pure logic (`block_matcher`, each `LayerSource`, the serializer) does
+  have unit tests, using a headless `Blockly.Workspace`.
+- **"New layer..." uses `window.prompt`** for naming, both in the context
+  menu and the panel's "+" button — functional but not polished; a richer
+  inline input would be a reasonable follow-up.
+- **No UI to browse/remove a stack's existing layer assignments** beyond
+  right-clicking it again and toggling each layer off (no "manage layers"
+  dialog).
+- **The `byVariableProvider`/`byProcedureProvider` extractors return only
+  one key per block** (the first variable field found, or the `NAME`
+  field) — a block with multiple variable fields only contributes to one
+  dynamic layer, not several.
+- **RTL has only basic positioning logic**, unexercised in practice.
+- **Dynamic sections only recompute when the panel re-renders** (on layer
+  toggles, manual-layer changes), not on every main-workspace edit — so a
+  brand-new variable/procedure won't appear in its dynamic section until
+  something else triggers a re-render. Minor and not yet addressed.
 
 ## Next steps
 
-- Manually verify the full interactive checklist in a browser: toggle
-  layers, edit fields in both directions, create/delete/reconnect blocks in
-  both directions, and confirm dragged positions survive unrelated toggles.
-  (Still outstanding — flagged previously as untested due to lack of
-  browser tooling in-session.)
-- Add integration tests for `SyncEngine` itself (e.g. using rendered
-  `WorkspaceSvg` instances in a test environment), not just the pure
-  matcher functions.
-- Decide whether a pluggable per-layer layout strategy (vertical/
-  horizontal/grid) is worth exposing, or whether the fixed vertical stack
-  is sufficient long-term.
-- Decide on a persistence story if installers want layer config/active
-  state to survive reloads — document a recommended pattern, or add
-  first-class support.
-- Consider a visual indicator in the main workspace for blocks that are
-  currently also open in a layer, to help with orientation.
-- Flesh out `GETSTARTED.md` and `package.json` (`description`, `keywords`)
-  now that the README has a concrete usage example.
+- Manually verify the v2 interactive checklist in a browser: assign two
+  stacks to a new manual layer via right-click, toggle it on; create a
+  variable and confirm it appears under "Variables"; save → clear → load
+  and confirm manual assignment survives (automated via
+  `test/layers_serializer.mocha.js`, but worth an end-to-end playground
+  pass too).
+- Add a debounced re-render trigger for dynamic sections on relevant
+  main-workspace structural events (new/deleted variable, procedure,
+  block), so new variables/procedures show up promptly without requiring
+  an unrelated panel interaction first.
+- Consider a richer "new layer" input than `window.prompt`.
+- Consider a "manage layers" view for bulk rename/recolor/delete and
+  browsing a stack's current assignments.
+- Decide whether multi-key extraction (a block contributing to more than
+  one dynamic layer) is worth supporting.
+- Flesh out `GETSTARTED.md` and `package.json` (`description`, `keywords`).
