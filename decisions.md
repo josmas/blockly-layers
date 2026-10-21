@@ -21,7 +21,7 @@ per-document structure.
 The design now rests on three combinable layer sources:
 
 1. **Manual, author-curated layers** (primary tool) — right-click a
-   top-level stack → "Add to layer...". Persisted with the project.
+   top-level stack → pick a "Layer: <name>" item. Persisted with the project.
 2. **Dynamic, auto-derived layers** — one per variable, one per procedure,
    computed live, no configuration. A `DynamicLayerProvider` extension
    point lets a host (e.g. MIT App Inventor) supply a custom extractor
@@ -126,7 +126,7 @@ extra cost); (D) per-layer tabs (kept as a possible later layer on top of B).
   but control of storage stay with the installer long-term.
   `exportManualLayers()`/`importManualLayers()` are the escape hatch for
   installers with a custom save/load path that bypasses the registry.
-- **"Add to layer..." via `Blockly.ContextMenuRegistry`**
+- **Layer items via `Blockly.ContextMenuRegistry`** (originally "Add to layer..."; see the 2026-10-21 context menu section)
   (`src/manual_layer_context_menu.ts`), scoped to blocks, resolving the
   right-clicked block's top-level ancestor via `block.getRootBlock()` so
   right-clicking anywhere in a stack works. Menu items are namespaced by
@@ -244,6 +244,30 @@ dynamic) vanished and stayed gone after deactivating the layer again.
   synthetic `focusin` event on the primary workspace's injection div right
   after creating the layer workspace, exploiting the same listener Blockly
   already registers, to claim the pointer back immediately.
+
+## 2026-10-21 context menu: making layer items distinguishable
+
+The per-layer context menu items showed up as bare layer names, mixed in
+with Blockly's stock items. Blockly 13.3's `ContextMenuRegistry` has **no
+submenus** (checked its types), but does support separators and a
+`displayText` that can be an `HTMLElement`.
+
+**Chose:** a separator, a disabled "Layers" heading, rows labelled
+`[✓ ]Layer: <name>` ("+ New layer..." for creation), and a closing separator,
+kept contiguous by weight (98–101). Small, and the structure is verifiable
+from the types alone. Rows are re-registered whenever layers change, as before.
+
+Options considered and **not** taken (revisit if the menu gets long or
+looks wrong):
+
+- **Prefix only**, no heading/separators: simplest, but the group isn't
+  visually delimited.
+- **Styled `HTMLElement` rows** (layer color swatch + check mark, matching
+  the panel): nicer, but unverified how Blockly styles/handles custom
+  elements in menu rows, and it needs checking in a browser.
+- **A single "Layers…" item that opens our own popup** with checkboxes (and
+  search, for many layers): closest to a real submenu and scales to large
+  layer counts, but means owning a popup's positioning, focus and dismissal.
 
 ## 2026-10 panel scaling: collapsible sections + global search
 

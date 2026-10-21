@@ -4,7 +4,7 @@ A [Blockly](https://www.npmjs.com/package/blockly) plugin that adds Photoshop-st
 
 Layers come from three sources, combinable in the same panel:
 
-- **Manual, author-curated layers** — the primary tool. Right-click any stack and choose "Add to layer..." to assign it to a named layer as you build. Persisted with the project.
+- **Manual, author-curated layers** — the primary tool. Right-click any stack and pick a "Layer: <name>" item (under a "Layers" heading) to assign it to a named layer as you build. Persisted with the project.
 - **Dynamic, auto-derived layers** — computed from the project itself, no configuration needed: one layer per variable, one per procedure, out of the box. A pluggable extension point lets a host application (e.g. a component-based system like MIT App Inventor) supply its own extractor — see [Dynamic layer providers](#dynamic-layer-providers) below.
 - **Installer-configured static layers** — the original block-type-list mechanism. Useful as a secondary filter (e.g. "every block that logs to the console"), not the primary way to organize a project.
 
@@ -56,7 +56,7 @@ const plugin = new LayersPlugin(workspace, {
 plugin.init();
 ```
 
-That's it — the panel ships with "Variables" and "Procedures" dynamic sections automatically, and a "Layers" section (manual, author-curated) with a "+" button to create a new one. Right-click any top-level stack in the main workspace and choose "Add to layer..." to assign it, or "New layer..." to create one and assign the stack in one step. Each manual layer row has a remove button; the panel header's "Clear" button (shown only when something's active) deactivates every layer at once.
+That's it — the panel ships with "Variables" and "Procedures" dynamic sections automatically, and a "Layers" section (manual, author-curated) with a "+" button to create a new one. Right-click any top-level stack in the main workspace and pick a "Layer: <name>" item to toggle its membership (a check mark means it's in that layer), or "+ New layer..." to create one and assign the stack in one step. Each manual layer row has a remove button; the panel header's "Clear" button (shown only when something's active) deactivates every layer at once.
 
 Checking a layer's box dims every stack that belongs to none of the checked layers (or hides it, via the panel's "Others: dimmed/hidden" toggle) and scrolls and zooms to fit the stacks that remain. Stacks keep their real positions; the panel's "Arrange visible" button stacks the visible ones into a column (a normal, undoable move). A stack created while filtering stays visible until the active layers next change. The panel can be collapsed to a one-line "Showing: ..." summary.
 
