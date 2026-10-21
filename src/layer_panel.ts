@@ -251,9 +251,9 @@ export class LayerPanel implements Blockly.IPositionable {
     this.bodyDiv.replaceChildren();
 
     if (this.clearButton) {
-      this.clearButton.style.display = this.callbacks.hasActiveLayers()
+      this.clearButton.style.visibility = this.callbacks.hasActiveLayers()
         ? ''
-        : 'none';
+        : 'hidden';
     }
 
     const hasActive = this.callbacks.hasActiveLayers();
@@ -264,7 +264,10 @@ export class LayerPanel implements Blockly.IPositionable {
       this.searchWrapper.style.display = this.collapsed ? 'none' : '';
     }
     if (this.toolbarDiv) {
-      this.toolbarDiv.style.display = hasActive && !this.collapsed ? '' : 'none';
+      // `visibility`, not `display`: the row keeps its height when inert so
+      // the rest of the panel doesn't jump as layers are checked/cleared.
+      this.toolbarDiv.style.display = this.collapsed ? 'none' : '';
+      this.toolbarDiv.style.visibility = hasActive ? '' : 'hidden';
     }
     if (this.modeButton) {
       this.modeButton.textContent =
