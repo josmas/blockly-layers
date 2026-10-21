@@ -159,6 +159,8 @@ export interface LayerPanelSection {
 export interface LayerPanelCallbacks {
   getSections(): LayerPanelSection[];
   isActive(layerId: string): boolean;
+  /** Whether any layer, from any source, is currently active — governs whether "Clear" is shown. */
+  hasActiveLayers(): boolean;
   onToggle(layerId: string, active: boolean): void;
   /** Called from the panel header's "+" button. */
   onAddManualLayer(): void;
@@ -172,6 +174,7 @@ export class LayerPanel implements Blockly.IPositionable {
   private htmlDiv: HTMLDivElement | null = null;
   private bodyDiv: HTMLDivElement | null = null;
   private searchInput: HTMLInputElement | null = null;
+  private clearButton: HTMLButtonElement | null = null;
   /** Row/section events, rebuilt on every render(). */
   private readonly rowBoundEvents: Blockly.browserEvents.Data[] = [];
   /** Header/search events, bound once in createDom() and kept across renders. */
@@ -209,6 +212,7 @@ export class LayerPanel implements Blockly.IPositionable {
       this.htmlDiv = null;
       this.bodyDiv = null;
       this.searchInput = null;
+      this.clearButton = null;
     }
   }
 
@@ -217,6 +221,12 @@ export class LayerPanel implements Blockly.IPositionable {
     if (!this.bodyDiv) return;
     this.unbindRowEvents();
     this.bodyDiv.replaceChildren();
+
+    if (this.clearButton) {
+      this.clearButton.style.display = this.callbacks.hasActiveLayers()
+        ? ''
+        : 'none';
+    }
 
     const query = this.searchQuery.trim().toLowerCase();
     const searching = query.length > 0;
@@ -274,11 +284,12 @@ export class LayerPanel implements Blockly.IPositionable {
 
     const actions = document.createElement('span');
     Blockly.utils.dom.addClass(actions, 'blockly-layers-panel-header-actions');
-    actions.appendChild(
-      this.createHeaderButton('Clear', 'Deactivate all layers', () =>
-        this.callbacks.onClearAll(),
-      ),
+    this.clearButton = this.createHeaderButton(
+      'Clear',
+      'Deactivate all layers',
+      () => this.callbacks.onClearAll(),
     );
+    actions.appendChild(this.clearButton);
     actions.appendChild(
       this.createHeaderButton('+', 'New layer', () =>
         this.callbacks.onAddManualLayer(),

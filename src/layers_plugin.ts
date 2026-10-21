@@ -77,6 +77,7 @@ export class LayersPlugin {
     this.panel = new LayerPanel(workspace, {
       getSections: () => this.getSections(),
       isActive: (id) => this.activeIds.has(id),
+      hasActiveLayers: () => this.activeIds.size > 0,
       onToggle: (id, active) => this.setLayerActive(id, active),
       onAddManualLayer: () => {
         const name = window.prompt('New layer name:');
