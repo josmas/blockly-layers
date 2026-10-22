@@ -269,6 +269,29 @@ looks wrong):
   search, for many layers): closest to a real submenu and scales to large
   layer counts, but means owning a popup's positioning, focus and dismissal.
 
+## 2026-10-22 optional XML persistence (for App Inventor)
+
+Manual layers persist through Blockly's JSON serializer registry, which
+`Blockly.Xml` saves bypass. MIT App Inventor saves `.bky` as XML
+(`Blockly.SaveFile.get` in `blocklyeditor/src/savefile.js` calls
+`Blockly.Xml.workspaceToDom`, appends a `yacodeblocks` element, and loads via
+`Blockly.Versioning.upgrade` → `ensureWorkspace` → `Blockly.Xml.domToWorkspace`),
+so manual layers wouldn't have been saved there (read from the Blockly 13 PR
+branch, mit-cml/appinventor-sources#4069).
+
+Options: host serializes `exportManualLayers()` itself; **plugin-provided XML
+helpers (chosen)**; storing layer names on the blocks (rejected: needs the
+host's block definitions to cooperate, not generic). `exportManualLayersXml()`
+/ `importManualLayersXml(el)` (`src/layers_xml.ts`) produce/parse a `<layers>`
+element. Strictly opt-in: JSON hosts are unaffected and the plugin never
+calls them itself. The host appends the element on save and imports it
+**after** blocks load.
+
+Known risk: membership is keyed by top-block id. `workspaceToDom` keeps ids,
+but blocks recreated on load without ids (App Inventor's version upgraders
+build some blocks that way) would lose their assignments. Not yet verified
+against a real App Inventor project.
+
 ## 2026-10 panel scaling: collapsible sections + global search
 
 A real project can easily have 100+ variables and 200+ procedures — each

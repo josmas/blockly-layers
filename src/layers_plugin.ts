@@ -28,6 +28,10 @@ import {
   registerManualSource,
   unregisterManualSource,
 } from './layers_serializer';
+import {
+  manualLayerStateFromXml,
+  manualLayerStateToXml,
+} from './layers_xml';
 import {ManualLayerContextMenu} from './manual_layer_context_menu';
 
 /**
@@ -215,6 +219,23 @@ export class LayersPlugin {
   /** The import counterpart to {@link exportManualLayers}. */
   importManualLayers(state: ManualLayerState) {
     this.manualSource.importState(state);
+  }
+
+  /**
+   * XML counterpart to {@link exportManualLayers}, for hosts that save with
+   * `Blockly.Xml`: returns a `<layers>` element to append to the saved file.
+   * Optional; hosts using JSON serialization don't need it.
+   */
+  exportManualLayersXml(): Element {
+    return manualLayerStateToXml(this.manualSource.exportState());
+  }
+
+  /**
+   * The import counterpart to {@link exportManualLayersXml}. Call after the
+   * blocks have loaded, since membership refers to block ids.
+   */
+  importManualLayersXml(element: Element) {
+    this.manualSource.importState(manualLayerStateFromXml(element));
   }
 
   private getActiveLayerNames(): string[] {

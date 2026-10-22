@@ -76,6 +76,7 @@ A project can easily have hundreds of variables or procedures, each becoming its
 - `plugin.createManualLayer(name, {color?, icon?})` — creates a manual layer and returns its id; `plugin.removeManualLayer(id)` removes one.
 - `plugin.assignToLayer(topBlockId, layerId)` / `plugin.unassignFromLayer(topBlockId, layerId)` — the programmatic equivalent of the context menu action.
 - `plugin.exportManualLayers()` / `plugin.importManualLayers(state)` — manual export/import escape hatch; see [Persistence](#persistence).
+- `plugin.exportManualLayersXml()` / `plugin.importManualLayersXml(element)` — the same, as a `<layers>` DOM element, for hosts that save with `Blockly.Xml`. Optional.
 
 ## Dynamic layer providers
 
@@ -122,6 +123,25 @@ const state = plugin.exportManualLayers();
 // ...store `state` however you like...
 plugin.importManualLayers(state);
 ```
+
+Hosts that save workspaces as XML (`Blockly.Xml.workspaceToDom`, which the JSON serializer registry doesn't touch) can use the XML flavor of the same hatch. It is entirely optional; hosts using JSON serialization need neither:
+
+```js
+// Save: append the element wherever your file format allows.
+const dom = Blockly.Xml.workspaceToDom(workspace);
+dom.appendChild(plugin.exportManualLayersXml());
+
+// Load: AFTER the blocks exist (membership refers to block ids).
+Blockly.Xml.domToWorkspace(dom, workspace);
+const layers = dom.querySelector('layers');
+if (layers) plugin.importManualLayersXml(layers);
+```
+
+Membership is keyed by top-level block id, so ids must survive your save/load round trip (`workspaceToDom` writes them unless told not to). Stacks recreated with new ids on load, e.g. by a version upgrader, lose their assignments.
+
+## Host integration
+
+Hosts that load plugins as prebuilt scripts rather than npm packages (e.g. MIT App Inventor) can copy `dist/index.js` and load it after Blockly; see [INTEGRATION_APPINVENTOR.md](./INTEGRATION_APPINVENTOR.md) for that case.
 
 ## License
 

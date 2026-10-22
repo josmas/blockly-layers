@@ -1,7 +1,7 @@
 {
   "name": "blockly-layers",
   "version": "0.0.0",
-  "description": "A Blockly plugin.",
+  "description": "A Blockly plugin that organizes large workspaces into toggleable layers of top-level block stacks.",
   "scripts": {
     "audit-fix": "blockly-scripts auditFix",
     "build": "blockly-scripts build",
@@ -11,7 +11,7 @@
     "test": "blockly-scripts test"
   },
   "main": "./dist/index.js",
-  "module": "./src/index.js",
+  "types": "./dist/index.d.ts",
   "unpkg": "./dist/index.js",
   "author": "",
   "keywords": [

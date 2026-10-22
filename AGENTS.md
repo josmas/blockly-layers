@@ -1,6 +1,6 @@
 # AGENTS.md — blockly-layers
 
-Guidance for working on this repo. For _why_ things are built the way they are (and known gaps), see [`decisions.md`](./decisions.md). For the public API as documented for consumers, see [`README.md`](./README.md).
+Guidance for working on this repo. For _why_ things are built the way they are (and known gaps), see [`decisions.md`](./decisions.md). For the public API as documented for consumers, see [`README.md`](./README.md). For wiring it into MIT App Inventor (host-side, done in a fork), see [`INTEGRATION_APPINVENTOR.md`](./INTEGRATION_APPINVENTOR.md).
 
 ## What this is
 
@@ -27,6 +27,7 @@ src/
   layer_types.ts                   # LayerDefinition / StaticLayerDefinition / DynamicLayerProvider / options
   layers_plugin.ts                  # LayersPlugin: public API, owns sources + panel + workspace controller
   layers_serializer.ts               # persists manual layers via Blockly's serializer registry
+  layers_xml.ts                       # optional <layers> XML form of manual layer state, for hosts that save with Blockly.Xml
   manual_layer_context_menu.ts        # "Layers" heading + "Layer: <name>" / "+ New layer..." block context menu items
   layer_panel.ts                       # floating, sectioned checkbox panel (IPositionable)
   layer_filter.ts                        # hides/dims stacks outside the active layers, fit-to-visible, arrange
@@ -45,6 +46,7 @@ test/
   block_matcher.mocha.js      # unit tests for block_matcher.ts
   manual_source.mocha.js       # unit tests for ManualSource CRUD
   layers_serializer.mocha.js    # save/load round-trip through Blockly's serializer registry
+  layers_xml.mocha.js            # round-trip of the optional XML form
   dynamic_layers.mocha.js        # unit tests for the built-in providers + DynamicSource
 ```
 
