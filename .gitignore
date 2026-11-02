@@ -33,3 +33,7 @@ packages/docs/.docusaurus
 .nx/cache
 .nx/workspace-data
 .nx/migrate-runs
+
+# Playwright
+test-results/
+playwright-report/

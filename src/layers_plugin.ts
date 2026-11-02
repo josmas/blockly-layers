@@ -108,22 +108,26 @@ export class LayersPlugin {
       this.filter.reapply();
     });
 
-    this.panel = new LayerPanel(workspace, {
-      getSections: () => this.getSections(),
-      isActive: (id) => this.activeIds.has(id),
-      hasActiveLayers: () => this.activeIds.size > 0,
-      onToggle: (id, active) => this.setLayerActive(id, active),
-      onAddManualLayer: () => {
-        const name = window.prompt('New layer name:');
-        if (name) this.manualSource.createLayer(name);
+    this.panel = new LayerPanel(
+      workspace,
+      {
+        getSections: () => this.getSections(),
+        isActive: (id) => this.activeIds.has(id),
+        hasActiveLayers: () => this.activeIds.size > 0,
+        onToggle: (id, active) => this.setLayerActive(id, active),
+        onAddManualLayer: () => {
+          const name = window.prompt('New layer name:');
+          if (name) this.manualSource.createLayer(name);
+        },
+        onClearAll: () => this.clearActiveLayers(),
+        getActiveLayerNames: () => this.getActiveLayerNames(),
+        getFilterMode: () => this.filter.getMode(),
+        onToggleFilterMode: () =>
+          this.setFilterMode(this.filter.getMode() === 'hide' ? 'dim' : 'hide'),
+        onArrangeVisible: () => this.arrangeVisible(),
       },
-      onClearAll: () => this.clearActiveLayers(),
-      getActiveLayerNames: () => this.getActiveLayerNames(),
-      getFilterMode: () => this.filter.getMode(),
-      onToggleFilterMode: () =>
-        this.setFilterMode(this.filter.getMode() === 'hide' ? 'dim' : 'hide'),
-      onArrangeVisible: () => this.arrangeVisible(),
-    });
+      {mode: options.panelMode, storageKey: options.storageKey},
+    );
     this.filter = new LayerFilterController(
       workspace,
       () => this.getDesiredTopBlockIds(),

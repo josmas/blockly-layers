@@ -64,10 +64,21 @@ Known limitation: workspace-level actions such as "Clean up Blocks", "Delete N B
 
 A project can easily have hundreds of variables or procedures, each becoming its own dynamic layer row, so every section except the manual "Layers" one is collapsible (collapsed by default) and a single search box filters rows across every section at once. Dynamic sections stay live — creating, deleting, or renaming a block updates the matching section automatically, no refresh needed.
 
+### Floating or docked
+
+The panel has two modes, switched with the button at the right of its header.
+
+- **Floating** (default) sits over the workspace in the top-right corner (top-left in RTL), stepping under controls such as a backpack, stopping above the zoom controls and trash can, and displacing none of them. Drag its header to put it anywhere; once moved it floats freely, and double-clicking the header returns it to the default spot.
+- **Docked** turns it into a sidebar beside the workspace. The plugin does this inside the element Blockly was injected into (that element becomes a flex row), so the host needs no layout change; leaving dock mode or calling `dispose()` restores that element exactly. Drag the splitter to resize it; collapsing it leaves a thin rail.
+
+Each user's choice — mode, position, dock width, collapsed state and expanded sections — is saved in `localStorage` and restored next time. Storage being unavailable is harmless; the panel just doesn't remember.
+
 ## API
 
 - `new LayersPlugin(workspace, {layers?, dynamicProviders?})` — `layers` seeds the static, installer-configured layers (`StaticLayerDefinition[]`: `{id, name, blockTypes, color?, icon?}`); `dynamicProviders` adds custom `DynamicLayerProvider`s alongside the built-in by-variable/by-procedure ones (a provider whose `key` is `variable` or `procedure` replaces that built-in, for hosts with non-standard variable/procedure blocks).
 - `contextMenuWeight` (constructor option) — base weight of the "Layers" group in the block context menu; the group occupies `[base, base + 3]`. Default 98. Pass a value clear of any weights the host registers, otherwise its items interleave with the layer items.
+- `panelMode` (constructor option) — `'floating'` (default) or `'docked'`: how the panel starts for a user who hasn't chosen yet. A saved user choice always wins over it.
+- `storageKey` (constructor option) — the `localStorage` key for the per-user panel state. Default `'blockly-layers:panel'`; scope it if one origin hosts several editors that shouldn't share a layout.
 - `plugin.init()` — registers persistence, the context menu, and shows the layer panel.
 - `plugin.dispose()` — tears down the panel and context menu, and restores any hidden stacks.
 - `plugin.setLayerActive(id, active)` / `plugin.getActiveLayerIds()` — show/hide any layer (from any source) programmatically, or read which are currently checked.

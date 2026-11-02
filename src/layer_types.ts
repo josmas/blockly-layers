@@ -84,4 +84,18 @@ export interface LayersPluginOptions {
    * around 98-101, otherwise they interleave with the layer items.
    */
   contextMenuWeight?: number;
+
+  /**
+   * Which way the layers panel starts: `'floating'` over the workspace
+   * (default) or `'docked'` as a sidebar beside it. Only the initial mode —
+   * once a user has chosen one, their saved choice wins.
+   */
+  panelMode?: 'floating' | 'docked';
+
+  /**
+   * `localStorage` key under which each user's panel view state (mode,
+   * position, dock width, collapsed/expanded sections) is saved. Defaults to
+   * `'blockly-layers:panel'`; scope it if one origin hosts several editors.
+   */
+  storageKey?: string;
 }

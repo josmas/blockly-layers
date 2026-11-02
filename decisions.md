@@ -389,13 +389,76 @@ Two more gaps surfaced after the scaling work above:
   harmless (worst case: that layer mirrors into the layer workspace again
   on its own), not worth the bookkeeping to prune proactively right now.
 
+## 2026-11 panel placement: floating-with-drag and docked modes
+
+In App Inventor the panel pushed the backpack down next to the zoom/trash
+controls. Cause: `LayerPanel` registered at weight 1 and reported its full
+rectangle, so it claimed the top-right corner before the backpack (weight 2,
+same corner, bumps `DOWN`) and a panel up to 60% of the workspace height
+shoved everything after it down. It also bumped with its *full* height, so it
+could itself be pushed off-screen.
+
+Decisions:
+
+- **Default floating position no longer pushes anything.** Weight is now 100,
+  so we're positioned after trash/zoom/backpack. We probe the bump with just
+  the header's height (so a tall panel can't be bumped past the bottom
+  controls), then cap `maxHeight` at the distance to the nearest reported
+  rect below us in our column (`capHeight`). We still report our rectangle —
+  nothing is placed after us, so nothing is displaced, and the panel never
+  occludes anything by default. Rejected: returning `null` from
+  `getBoundingRectangle()` always — that stops displacing others but lets the
+  panel cover the backpack.
+- **A user-moved panel is unreported.** Dragging the header stores an offset
+  from the *unbumped* corner (`floatOffset`), so it survives resizes; it is
+  clamped when applied, not when stored, so a window that shrinks then grows
+  gives the position back. Once set, `getBoundingRectangle()` is `null`:
+  where a user puts it is their call. Double-click on the header resets.
+- **Docked mode lives inside the host's element, not in a host-provided
+  one.** App Inventor hands Blockly a single element (`BlocklyPanel`'s
+  `.svg { 100% x 100%; overflow:hidden }`) and has no spare sidebar slot, so
+  a `panelContainer` option would have forced GWT layout changes in the fork.
+  Instead `PanelDock` turns that element into a flex row (injection div |
+  splitter | panel) and re-fits the SVG, which Blockly sizes from its parent
+  element (`svgResize`). Everything touched is recorded on entry and restored
+  on exit/`dispose()`. Rejected: a custom `MetricsManager` — the host already
+  supplies its own (`ScrollMetricsManager`) and layout belongs to the host.
+  `panelContainer` stays a possible later escape hatch for hosts with their
+  own layout; nothing needs it yet.
+- **Per-user state in `localStorage`** under `storageKey`: mode, `floatOffset`,
+  `dockWidth`, `collapsed`, `expandedSections`. Precedence: saved value >
+  `panelMode` option > built-in default (floating). Every access is wrapped
+  in try/catch and parsed field by field, so blocked/corrupt storage just
+  means no memory. Pure parts live in `panel_state.ts` (unit-tested); DOM in
+  `panel_dock.ts`.
+- **Browser tests use a lean fixture, not the dev-tools playground**, which
+  loads Monaco from the network and can recreate the workspace. `test/index.ts`
+  mounts `?fixture=1` instead: a host-like container, a stub backpack that
+  mimics App Inventor's (weight 2, top corner, bumps down), zoom/trash, and
+  optional `many=N` extra layers / `rtl=1`. `npm run test:browser` runs
+  Playwright against it (`@playwright/test` pinned to 1.57.0, which matches
+  the Chromium already in `~/.cache/ms-playwright`). Assertions about
+  "overlapping the zoom/trash" use the rectangles they *report* to Blockly,
+  not their DOM bounding boxes, which include hit areas and overstate them.
+  Mutation-checked: setting the weight back to 1 makes the displacement test
+  fail with the backpack shoved ~200px down, the originally reported bug.
+
+Not yet verified inside App Inventor itself: rebuild the fork's
+`blockly-layers-0.0.0-local.min.js` and check docked mode against the real
+`.svg` CSS and — importantly — that the whole container, not just the SVG, is
+hidden when a screen is inactive (`BlocklyPanel.setVisible` →
+`workspace.setVisible(false)`), so a docked panel can't show through.
+
 ## Known limitations
 
 - **Workspace-level actions still touch hidden stacks** (Clean up, Delete N
   Blocks, Collapse Blocks) while a layer filter is active; see V3.
 - **Arrange visible layout isn't pluggable** — hardcoded vertical stack.
-- **No automated test coverage of `LayerFilterController` or `LayerPanel`** — these need a real rendered `WorkspaceSvg`/
-  DOM. Covered instead by the manual playground checklist in `AGENTS.md`.
+- **`LayerFilterController` and the context menu have no automated tests**,
+  and `LayerPanel`'s placement/drag/dock/persistence are covered only by the
+  Playwright suite (`npm run test:browser`), not its row/section rendering —
+  they need a real rendered `WorkspaceSvg`/DOM. The rest is covered by the
+  manual playground checklist in `AGENTS.md`.
   Pure logic (`block_matcher`, each `LayerSource`, the serializer) does
   have unit tests, using a headless `Blockly.Workspace`.
 - **"New layer..." uses `window.prompt`** for naming, both in the context

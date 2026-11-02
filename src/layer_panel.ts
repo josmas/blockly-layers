@@ -21,6 +21,20 @@
 import * as Blockly from 'blockly/core';
 
 import type {LayerDefinition} from './layer_types';
+import {PanelDock} from './panel_dock';
+import type {PanelMode, PanelState} from './panel_state';
+import {
+  DEFAULT_STORAGE_KEY,
+  capHeight,
+  clampDockWidth,
+  clampOffset,
+  getBrowserStorage,
+  loadState,
+  saveState,
+} from './panel_state';
+
+/** Width of the docked panel when collapsed to just its toggle button. */
+const RAIL_WIDTH = 32;
 
 Blockly.Css.register(`
   .blockly-layers-panel {
@@ -38,6 +52,31 @@ Blockly.Css.register(`
     font-size: 0.8rem;
     z-index: 20;
   }
+  .blockly-layers-panel.blockly-layers-panel-docked {
+    position: relative;
+    flex: 0 0 auto;
+    box-sizing: border-box;
+    max-height: none;
+    border-width: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+  .blockly-layers-panel.blockly-layers-panel-docked.blockly-layers-panel-collapsed {
+    width: ${RAIL_WIDTH}px;
+  }
+  .blockly-layers-panel-collapsed.blockly-layers-panel-docked
+    .blockly-layers-panel-header {
+    justify-content: center;
+    padding: 6px 0;
+  }
+  .blockly-layers-panel-collapsed.blockly-layers-panel-docked
+    .blockly-layers-panel-title,
+  .blockly-layers-panel-collapsed.blockly-layers-panel-docked
+    .blockly-layers-panel-header-actions,
+  .blockly-layers-panel-collapsed.blockly-layers-panel-docked
+    .blockly-layers-panel-scope {
+    display: none;
+  }
   .blockly-layers-panel-header {
     display: flex;
     align-items: center;
@@ -45,6 +84,11 @@ Blockly.Css.register(`
     padding: 6px 10px;
     font-weight: bold;
     border-bottom: 1px solid #eee;
+    touch-action: none;
+  }
+  .blockly-layers-panel:not(.blockly-layers-panel-docked)
+    .blockly-layers-panel-header {
+    cursor: move;
   }
   .blockly-layers-panel-header-actions {
     display: flex;
@@ -185,9 +229,22 @@ export interface LayerPanelCallbacks {
   onArrangeVisible(): void;
 }
 
+export interface LayerPanelOptions {
+  /** Mode to start in when the user has no saved preference. */
+  mode?: PanelMode;
+  /** `localStorage` key for the per-user view state. */
+  storageKey?: string;
+}
+
 const PANEL_MARGIN = 10;
 const PANEL_FALLBACK_WIDTH = 220;
 const PANEL_MIN_HEIGHT = 120;
+/**
+ * Higher than every built-in control (trash 1, zoom 2) and the App Inventor
+ * backpack (2), so we are positioned last: we step under what's already there
+ * and nothing is left to be displaced by us.
+ */
+const PANEL_WEIGHT = 100;
 
 export class LayerPanel implements Blockly.IPositionable {
   id = 'layersPanel';
@@ -203,29 +260,58 @@ export class LayerPanel implements Blockly.IPositionable {
   private toolbarDiv: HTMLDivElement | null = null;
   private modeButton: HTMLButtonElement | null = null;
   private searchWrapper: HTMLElement | null = null;
-  private collapsed = false;
+  private headerDiv: HTMLDivElement | null = null;
+  private dockButton: HTMLButtonElement | null = null;
   /** Row/section events, rebuilt on every render(). */
   private readonly rowBoundEvents: Blockly.browserEvents.Data[] = [];
   /** Header/search events, bound once in createDom() and kept across renders. */
   private readonly chromeBoundEvents: Blockly.browserEvents.Data[] = [];
+  /** Raw DOM listeners (drag), removed in dispose(). */
+  private readonly domCleanups: Array<() => void> = [];
 
   /** Current search box text. */
   private searchQuery = '';
   /** Titles of non-headerless sections the user has manually expanded. */
   private readonly expandedSections = new Set<string>();
 
+  private readonly storage = getBrowserStorage();
+  private readonly storageKey: string;
+  /** Per-user view state; `floatOffset` holds the user's intent, clamped only when applied. */
+  private state: PanelState;
+  private readonly dock: PanelDock;
+  /** The unbumped corner the floating offset is measured from; set by position(). */
+  private anchor = {left: 0, top: 0};
+
   constructor(
     private readonly workspace: Blockly.WorkspaceSvg,
     private readonly callbacks: LayerPanelCallbacks,
-  ) {}
+    options: LayerPanelOptions = {},
+  ) {
+    this.storageKey = options.storageKey ?? DEFAULT_STORAGE_KEY;
+    this.state = loadState(this.storage, this.storageKey, {
+      mode: options.mode,
+    });
+    for (const title of this.state.expandedSections) {
+      this.expandedSections.add(title);
+    }
+    this.dock = new PanelDock(workspace, {
+      getWidth: () => this.state.dockWidth,
+      onResize: (width) => this.applyDockWidth(width),
+      onCommit: (width) => {
+        this.state.dockWidth = clampDockWidth(width);
+        this.persist();
+      },
+    });
+  }
 
   init() {
     this.workspace.getComponentManager().addComponent({
       component: this,
-      weight: 1,
+      weight: PANEL_WEIGHT,
       capabilities: [Blockly.ComponentManager.Capability.POSITIONABLE],
     });
     this.createDom();
+    if (this.state.mode === 'docked') this.enterDock();
     this.render();
     this.workspace.resize();
   }
@@ -236,6 +322,9 @@ export class LayerPanel implements Blockly.IPositionable {
       Blockly.browserEvents.unbind(event);
     }
     this.chromeBoundEvents.length = 0;
+    for (const cleanup of this.domCleanups) cleanup();
+    this.domCleanups.length = 0;
+    this.dock.exit();
     if (this.htmlDiv) {
       Blockly.utils.dom.removeNode(this.htmlDiv);
       this.htmlDiv = null;
@@ -247,7 +336,58 @@ export class LayerPanel implements Blockly.IPositionable {
       this.toolbarDiv = null;
       this.modeButton = null;
       this.searchWrapper = null;
+      this.headerDiv = null;
+      this.dockButton = null;
     }
+  }
+
+  private persist() {
+    this.state.expandedSections = [...this.expandedSections];
+    saveState(this.storage, this.storageKey, this.state);
+  }
+
+  private isDocked() {
+    return this.state.mode === 'docked';
+  }
+
+  private setMode(mode: PanelMode) {
+    if (this.state.mode === mode || !this.htmlDiv) return;
+    this.state.mode = mode;
+    if (mode === 'docked') {
+      this.enterDock();
+    } else {
+      this.exitDock();
+    }
+    this.persist();
+    this.render();
+    this.workspace.resize();
+  }
+
+  private enterDock() {
+    if (!this.htmlDiv) return;
+    const style = this.htmlDiv.style;
+    style.left = style.top = style.right = style.maxHeight = '';
+    Blockly.utils.dom.addClass(this.htmlDiv, 'blockly-layers-panel-docked');
+    this.dock.enter(this.htmlDiv);
+    this.lastRect = null;
+    this.applyDockWidth(this.state.dockWidth);
+  }
+
+  private exitDock() {
+    if (!this.htmlDiv) return;
+    this.dock.exit();
+    Blockly.utils.dom.removeClass(this.htmlDiv, 'blockly-layers-panel-docked');
+    this.htmlDiv.style.width = '';
+    this.workspace
+      .getInjectionDiv()
+      .insertBefore(this.htmlDiv, this.workspace.getParentSvg());
+  }
+
+  /** Applies a docked width (or the rail width while collapsed) to the panel. */
+  private applyDockWidth(width: number) {
+    if (!this.htmlDiv || !this.isDocked()) return;
+    this.htmlDiv.style.width = this.state.collapsed ? '' : `${width}px`;
+    this.dock.syncWorkspaceSize();
   }
 
   /** Rebuilds every section and row. Call whenever layers may have changed. */
@@ -264,16 +404,30 @@ export class LayerPanel implements Blockly.IPositionable {
     }
 
     const hasActive = this.callbacks.hasActiveLayers();
+    const collapsed = this.state.collapsed;
+    if (this.htmlDiv) {
+      this.htmlDiv.classList.toggle('blockly-layers-panel-collapsed', collapsed);
+      // A collapsed docked panel is a rail; its width comes from CSS, not the
+      // dragged width.
+      this.applyDockWidth(this.state.dockWidth);
+    }
+    this.dock.setSplitterVisible(!collapsed);
+    if (this.dockButton) {
+      this.dockButton.textContent = this.isDocked() ? '⧉' : '⇥';
+      this.dockButton.title = this.isDocked()
+        ? 'Float over the workspace'
+        : 'Dock as a sidebar';
+    }
     if (this.collapseButton) {
-      this.collapseButton.textContent = this.collapsed ? '▸' : '▾';
+      this.collapseButton.textContent = collapsed ? '▸' : '▾';
     }
     if (this.searchWrapper) {
-      this.searchWrapper.style.display = this.collapsed ? 'none' : '';
+      this.searchWrapper.style.display = collapsed ? 'none' : '';
     }
     if (this.toolbarDiv) {
       // `visibility`, not `display`: the row keeps its height when inert so
       // the rest of the panel doesn't jump as layers are checked/cleared.
-      this.toolbarDiv.style.display = this.collapsed ? 'none' : '';
+      this.toolbarDiv.style.display = collapsed ? 'none' : '';
       this.toolbarDiv.style.visibility = hasActive ? '' : 'hidden';
     }
     if (this.modeButton) {
@@ -281,13 +435,13 @@ export class LayerPanel implements Blockly.IPositionable {
         this.callbacks.getFilterMode() === 'hide' ? 'Others: hidden' : 'Others: dimmed';
     }
     if (this.scopeDiv) {
-      this.scopeDiv.style.display = this.collapsed ? '' : 'none';
+      this.scopeDiv.style.display = collapsed ? '' : 'none';
       const names = this.callbacks.getActiveLayerNames();
       this.scopeDiv.textContent = names.length
         ? 'Showing: ' + names.join(', ')
         : 'Showing: all';
     }
-    if (this.collapsed) return;
+    if (collapsed) return;
 
     const query = this.searchQuery.trim().toLowerCase();
     const searching = query.length > 0;
@@ -314,6 +468,11 @@ export class LayerPanel implements Blockly.IPositionable {
     }
   }
 
+  /**
+   * Null while docked (we're outside the workspace) and once the user has
+   * placed the panel themselves (their call where it sits); otherwise our real
+   * rectangle, which nothing is positioned after, so nothing is displaced.
+   */
   getBoundingRectangle(): Blockly.utils.Rect | null {
     return this.lastRect;
   }
@@ -323,31 +482,138 @@ export class LayerPanel implements Blockly.IPositionable {
     savedPositions: Blockly.utils.Rect[],
   ) {
     if (!this.htmlDiv) return;
+    if (this.isDocked()) {
+      this.lastRect = null;
+      return;
+    }
     const injectionDiv = this.workspace.getInjectionDiv();
+    const bounds = {
+      width: injectionDiv.clientWidth,
+      height: injectionDiv.clientHeight,
+    };
     const width = this.htmlDiv.offsetWidth || PANEL_FALLBACK_WIDTH;
     const height = this.htmlDiv.offsetHeight || PANEL_MARGIN;
-    const left = this.workspace.RTL
-      ? metrics.absoluteMetrics.left + PANEL_MARGIN
-      : injectionDiv.clientWidth - width - PANEL_MARGIN;
-    const top = metrics.absoluteMetrics.top + PANEL_MARGIN;
+    this.anchor = {
+      left: this.workspace.RTL
+        ? metrics.absoluteMetrics.left + PANEL_MARGIN
+        : bounds.width - width - PANEL_MARGIN,
+      top: metrics.absoluteMetrics.top + PANEL_MARGIN,
+    };
 
-    // Report our real rectangle and step clear of whatever was positioned
-    // before us (e.g. a host's backpack), as Blockly's own controls do.
-    const placed = Blockly.uiPosition.bumpPositionRect(
-      new Blockly.utils.Rect(top, top + height, left, left + width),
-      PANEL_MARGIN,
-      Blockly.uiPosition.bumpDirection.DOWN,
-      savedPositions,
-    );
-    this.lastRect = placed;
+    let left: number;
+    let top: number;
+    let maxHeight: number;
+    if (this.state.floatOffset) {
+      const offset = clampOffset(
+        this.state.floatOffset,
+        this.anchor,
+        {width, height},
+        bounds,
+      );
+      left = this.anchor.left + offset.dx;
+      top = this.anchor.top + offset.dy;
+      maxHeight = Math.max(PANEL_MIN_HEIGHT, bounds.height - top - PANEL_MARGIN);
+      this.lastRect = null;
+    } else {
+      // Step under whatever was placed before us (e.g. a host's backpack),
+      // probing with just our header so a tall panel can't be bumped past
+      // the bottom controls; then cap our height to stop above them.
+      const probe = Blockly.uiPosition.bumpPositionRect(
+        new Blockly.utils.Rect(
+          this.anchor.top,
+          this.anchor.top + (this.headerDiv?.offsetHeight || PANEL_MARGIN),
+          this.anchor.left,
+          this.anchor.left + width,
+        ),
+        PANEL_MARGIN,
+        Blockly.uiPosition.bumpDirection.DOWN,
+        savedPositions,
+      );
+      left = probe.left;
+      top = probe.top;
+      maxHeight = capHeight(
+        top,
+        left,
+        left + width,
+        savedPositions,
+        PANEL_MARGIN,
+        bounds.height,
+        PANEL_MIN_HEIGHT,
+      );
+      this.lastRect = new Blockly.utils.Rect(
+        top,
+        top + Math.min(height, maxHeight),
+        left,
+        left + width,
+      );
+    }
 
-    this.htmlDiv.style.left = placed.left + 'px';
+    this.htmlDiv.style.left = left + 'px';
     this.htmlDiv.style.right = 'auto';
-    this.htmlDiv.style.top = placed.top + 'px';
-    // Keep the bumped panel inside the workspace; it scrolls internally.
-    this.htmlDiv.style.maxHeight =
-      Math.max(PANEL_MIN_HEIGHT, injectionDiv.clientHeight - placed.top - PANEL_MARGIN) +
-      'px';
+    this.htmlDiv.style.top = top + 'px';
+    // The panel scrolls internally within the space it was given.
+    this.htmlDiv.style.maxHeight = maxHeight + 'px';
+  }
+
+  /** Header press-and-drag moves a floating panel; double-click puts it back. */
+  private bindDrag(header: HTMLElement) {
+    const onDown = (e: PointerEvent) => {
+      if (this.isDocked() || e.button !== 0 || !this.htmlDiv) return;
+      if ((e.target as Element).closest('button')) return;
+      e.preventDefault();
+      header.setPointerCapture(e.pointerId);
+      const startX = e.clientX;
+      const startY = e.clientY;
+      const startOffset = {
+        dx: this.htmlDiv.offsetLeft - this.anchor.left,
+        dy: this.htmlDiv.offsetTop - this.anchor.top,
+      };
+
+      const onMove = (m: PointerEvent) => {
+        if (!this.htmlDiv) return;
+        const injectionDiv = this.workspace.getInjectionDiv();
+        this.state.floatOffset = clampOffset(
+          {
+            dx: startOffset.dx + (m.clientX - startX),
+            dy: startOffset.dy + (m.clientY - startY),
+          },
+          this.anchor,
+          {
+            width: this.htmlDiv.offsetWidth,
+            height: this.htmlDiv.offsetHeight,
+          },
+          {width: injectionDiv.clientWidth, height: injectionDiv.clientHeight},
+        );
+        this.htmlDiv.style.left =
+          this.anchor.left + this.state.floatOffset.dx + 'px';
+        this.htmlDiv.style.top =
+          this.anchor.top + this.state.floatOffset.dy + 'px';
+      };
+      const onUp = () => {
+        header.releasePointerCapture(e.pointerId);
+        header.removeEventListener('pointermove', onMove);
+        header.removeEventListener('pointerup', onUp);
+        header.removeEventListener('pointercancel', onUp);
+        this.persist();
+        // Our rectangle is now unreported; let everything else re-settle.
+        this.workspace.resize();
+      };
+      header.addEventListener('pointermove', onMove);
+      header.addEventListener('pointerup', onUp);
+      header.addEventListener('pointercancel', onUp);
+    };
+    const onDoubleClick = (e: MouseEvent) => {
+      if (this.isDocked() || (e.target as Element).closest('button')) return;
+      this.state.floatOffset = null;
+      this.persist();
+      this.workspace.resize();
+    };
+    header.addEventListener('pointerdown', onDown);
+    header.addEventListener('dblclick', onDoubleClick);
+    this.domCleanups.push(() => {
+      header.removeEventListener('pointerdown', onDown);
+      header.removeEventListener('dblclick', onDoubleClick);
+    });
   }
 
   /** Re-runs positioning after the panel's size changed. Debounced. */
@@ -373,12 +639,14 @@ export class LayerPanel implements Blockly.IPositionable {
       '▾',
       'Collapse or expand the panel',
       () => {
-        this.collapsed = !this.collapsed;
+        this.state.collapsed = !this.state.collapsed;
+        this.persist();
         this.render();
       },
     );
     titleWrap.appendChild(this.collapseButton);
     const title = document.createElement('span');
+    Blockly.utils.dom.addClass(title, 'blockly-layers-panel-title');
     title.textContent = 'Layers';
     titleWrap.appendChild(title);
     header.appendChild(titleWrap);
@@ -396,8 +664,16 @@ export class LayerPanel implements Blockly.IPositionable {
         this.callbacks.onAddManualLayer(),
       ),
     );
+    this.dockButton = this.createHeaderButton(
+      '⇥',
+      'Dock as a sidebar',
+      () => this.setMode(this.isDocked() ? 'floating' : 'docked'),
+    );
+    actions.appendChild(this.dockButton);
     header.appendChild(actions);
 
+    this.headerDiv = header;
+    this.bindDrag(header);
     this.htmlDiv.appendChild(header);
 
     this.scopeDiv = document.createElement('div');
@@ -528,6 +804,7 @@ export class LayerPanel implements Blockly.IPositionable {
         } else {
           this.expandedSections.add(section.title);
         }
+        this.persist();
         this.render();
       },
     );

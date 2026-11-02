@@ -8,7 +8,8 @@
     "clean": "blockly-scripts clean",
     "predeploy": "blockly-scripts predeploy",
     "start": "blockly-scripts start",
-    "test": "blockly-scripts test"
+    "test": "blockly-scripts test",
+    "test:browser": "playwright test"
   },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -32,9 +33,10 @@
     "src"
   ],
   "devDependencies": {
-    "blockly": "^13.3.0",
     "@blockly/dev-scripts": "^13.3.0",
     "@blockly/dev-tools": "^13.3.0",
+    "@playwright/test": "1.57.0",
+    "blockly": "^13.3.0",
     "typescript": "^5.0.0"
   },
   "peerDependencies": {
