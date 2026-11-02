@@ -76,4 +76,12 @@ export interface LayersPluginOptions {
 
   /** Auto-derived layer providers, in addition to the built-in ones. */
   dynamicProviders?: DynamicLayerProvider[];
+
+  /**
+   * Base weight of the "Layers" group in the block context menu (the group
+   * occupies `[base, base + 3]`). Defaults to 98. Set it to a value no other
+   * menu item's weight falls near if the host registers items with weights
+   * around 98-101, otherwise they interleave with the layer items.
+   */
+  contextMenuWeight?: number;
 }

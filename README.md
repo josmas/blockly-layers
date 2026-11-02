@@ -66,7 +66,8 @@ A project can easily have hundreds of variables or procedures, each becoming its
 
 ## API
 
-- `new LayersPlugin(workspace, {layers?, dynamicProviders?})` — `layers` seeds the static, installer-configured layers (`StaticLayerDefinition[]`: `{id, name, blockTypes, color?, icon?}`); `dynamicProviders` adds custom `DynamicLayerProvider`s alongside the built-in by-variable/by-procedure ones.
+- `new LayersPlugin(workspace, {layers?, dynamicProviders?})` — `layers` seeds the static, installer-configured layers (`StaticLayerDefinition[]`: `{id, name, blockTypes, color?, icon?}`); `dynamicProviders` adds custom `DynamicLayerProvider`s alongside the built-in by-variable/by-procedure ones (a provider whose `key` is `variable` or `procedure` replaces that built-in, for hosts with non-standard variable/procedure blocks).
+- `contextMenuWeight` (constructor option) — base weight of the "Layers" group in the block context menu; the group occupies `[base, base + 3]`. Default 98. Pass a value clear of any weights the host registers, otherwise its items interleave with the layer items.
 - `plugin.init()` — registers persistence, the context menu, and shows the layer panel.
 - `plugin.dispose()` — tears down the panel and context menu, and restores any hidden stacks.
 - `plugin.setLayerActive(id, active)` / `plugin.getActiveLayerIds()` — show/hide any layer (from any source) programmatically, or read which are currently checked.

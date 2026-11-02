@@ -185,10 +185,16 @@ export interface LayerPanelCallbacks {
   onArrangeVisible(): void;
 }
 
+const PANEL_MARGIN = 10;
+const PANEL_FALLBACK_WIDTH = 220;
+const PANEL_MIN_HEIGHT = 120;
+
 export class LayerPanel implements Blockly.IPositionable {
   id = 'layersPanel';
 
   private htmlDiv: HTMLDivElement | null = null;
+  private lastRect: Blockly.utils.Rect | null = null;
+  private repositionQueued = false;
   private bodyDiv: HTMLDivElement | null = null;
   private searchInput: HTMLInputElement | null = null;
   private clearButton: HTMLButtonElement | null = null;
@@ -247,6 +253,7 @@ export class LayerPanel implements Blockly.IPositionable {
   /** Rebuilds every section and row. Call whenever layers may have changed. */
   render() {
     if (!this.bodyDiv) return;
+    this.requestReposition();
     this.unbindRowEvents();
     this.bodyDiv.replaceChildren();
 
@@ -308,20 +315,49 @@ export class LayerPanel implements Blockly.IPositionable {
   }
 
   getBoundingRectangle(): Blockly.utils.Rect | null {
-    return null;
+    return this.lastRect;
   }
 
   position(
     metrics: Blockly.MetricsManager.UiMetrics,
-    _savedPositions: Blockly.utils.Rect[],
+    savedPositions: Blockly.utils.Rect[],
   ) {
     if (!this.htmlDiv) return;
-    if (this.workspace.RTL) {
-      this.htmlDiv.style.left = metrics.absoluteMetrics.left + 10 + 'px';
-    } else {
-      this.htmlDiv.style.right = '10px';
-    }
-    this.htmlDiv.style.top = metrics.absoluteMetrics.top + 10 + 'px';
+    const injectionDiv = this.workspace.getInjectionDiv();
+    const width = this.htmlDiv.offsetWidth || PANEL_FALLBACK_WIDTH;
+    const height = this.htmlDiv.offsetHeight || PANEL_MARGIN;
+    const left = this.workspace.RTL
+      ? metrics.absoluteMetrics.left + PANEL_MARGIN
+      : injectionDiv.clientWidth - width - PANEL_MARGIN;
+    const top = metrics.absoluteMetrics.top + PANEL_MARGIN;
+
+    // Report our real rectangle and step clear of whatever was positioned
+    // before us (e.g. a host's backpack), as Blockly's own controls do.
+    const placed = Blockly.uiPosition.bumpPositionRect(
+      new Blockly.utils.Rect(top, top + height, left, left + width),
+      PANEL_MARGIN,
+      Blockly.uiPosition.bumpDirection.DOWN,
+      savedPositions,
+    );
+    this.lastRect = placed;
+
+    this.htmlDiv.style.left = placed.left + 'px';
+    this.htmlDiv.style.right = 'auto';
+    this.htmlDiv.style.top = placed.top + 'px';
+    // Keep the bumped panel inside the workspace; it scrolls internally.
+    this.htmlDiv.style.maxHeight =
+      Math.max(PANEL_MIN_HEIGHT, injectionDiv.clientHeight - placed.top - PANEL_MARGIN) +
+      'px';
+  }
+
+  /** Re-runs positioning after the panel's size changed. Debounced. */
+  private requestReposition() {
+    if (this.repositionQueued) return;
+    this.repositionQueued = true;
+    requestAnimationFrame(() => {
+      this.repositionQueued = false;
+      if (this.htmlDiv) this.workspace.resize();
+    });
   }
 
   private createDom() {

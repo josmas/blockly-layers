@@ -22,13 +22,15 @@ const FRAME_ITEM_ID_PREFIX = 'blockly-layers-frame:';
  * Blockly 13 context menus have no submenus, so the layer items are set apart
  * from the stock ones by a separator, a disabled "Layers" heading, a
  * "Layer: " label prefix, and a closing separator. Weights keep the group
- * contiguous; the stock items sit well clear of this range.
+ * contiguous as long as no other item's weight falls inside the range
+ * `[base, base + 3]`. Hosts that register items with weights near the default
+ * base (e.g. App Inventor uses 100) should pass a clear `contextMenuWeight`.
  */
-const WEIGHT_TOP_SEPARATOR = 98;
-const WEIGHT_HEADING = 98.1;
-const WEIGHT_NEW_LAYER = 99;
-const WEIGHT_LAYER_BASE = 100;
-const WEIGHT_BOTTOM_SEPARATOR = 101;
+export const DEFAULT_CONTEXT_MENU_WEIGHT = 98;
+const OFFSET_HEADING = 0.1;
+const OFFSET_NEW_LAYER = 1;
+const OFFSET_LAYER = 2;
+const OFFSET_BOTTOM_SEPARATOR = 3;
 const LABEL_PREFIX = 'Layer: ';
 
 export class ManualLayerContextMenu {
@@ -39,6 +41,7 @@ export class ManualLayerContextMenu {
   constructor(
     private readonly mainWorkspace: Blockly.Workspace,
     private readonly manualSource: ManualSource,
+    private readonly baseWeight: number = DEFAULT_CONTEXT_MENU_WEIGHT,
   ) {
     this.newLayerItemId = NEW_LAYER_ITEM_ID_PREFIX + mainWorkspace.id;
     this.frameItemIds = ['top-separator', 'heading', 'bottom-separator'].map(
@@ -82,7 +85,7 @@ export class ManualLayerContextMenu {
         id: itemId,
         scopeType: Blockly.ContextMenuRegistry.ScopeType.BLOCK,
         // Tiny per-layer offset keeps creation order stable among equal weights.
-        weight: WEIGHT_LAYER_BASE + index / 1000,
+        weight: this.baseWeight + OFFSET_LAYER + index / 100000,
         displayText: (scope) => {
           const topBlock = scope.block?.getRootBlock();
           const assigned = topBlock
@@ -117,14 +120,14 @@ export class ManualLayerContextMenu {
     registry.register({
       id: topSeparator,
       scopeType,
-      weight: WEIGHT_TOP_SEPARATOR,
+      weight: this.baseWeight,
       separator: true,
       preconditionFn: precondition('enabled'),
     });
     registry.register({
       id: heading,
       scopeType,
-      weight: WEIGHT_HEADING,
+      weight: this.baseWeight + OFFSET_HEADING,
       displayText: 'Layers',
       preconditionFn: precondition('disabled'),
       callback: () => {},
@@ -132,7 +135,7 @@ export class ManualLayerContextMenu {
     registry.register({
       id: bottomSeparator,
       scopeType,
-      weight: WEIGHT_BOTTOM_SEPARATOR,
+      weight: this.baseWeight + OFFSET_BOTTOM_SEPARATOR,
       separator: true,
       preconditionFn: precondition('enabled'),
     });
@@ -142,7 +145,7 @@ export class ManualLayerContextMenu {
     Blockly.ContextMenuRegistry.registry.register({
       id: this.newLayerItemId,
       scopeType: Blockly.ContextMenuRegistry.ScopeType.BLOCK,
-      weight: WEIGHT_NEW_LAYER,
+      weight: this.baseWeight + OFFSET_NEW_LAYER,
       displayText: () => '+ New layer...',
       preconditionFn: (scope) =>
         this.isOwnScope(scope) ? 'enabled' : 'hidden',

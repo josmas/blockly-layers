@@ -90,10 +90,15 @@ export class LayersPlugin {
   ) {
     this.manualSource = new ManualSource();
     this.staticSource = new StaticTypeSource(options.layers ?? []);
+    // A host provider with the same `key` as a built-in replaces it, for hosts
+    // whose variable/procedure blocks don't use Blockly's standard fields.
+    const hostProviders = options.dynamicProviders ?? [];
+    const hostKeys = new Set(hostProviders.map((p) => p.key));
     const providers = [
-      byVariableProvider,
-      byProcedureProvider,
-      ...(options.dynamicProviders ?? []),
+      ...[byVariableProvider, byProcedureProvider].filter(
+        (p) => !hostKeys.has(p.key),
+      ),
+      ...hostProviders,
     ];
     this.dynamicSources = providers.map((provider) => new DynamicSource(provider));
     this.sources = [this.manualSource, ...this.dynamicSources, this.staticSource];
@@ -124,7 +129,11 @@ export class LayersPlugin {
       () => this.getDesiredTopBlockIds(),
       () => this.activeIds.size > 0,
     );
-    this.contextMenu = new ManualLayerContextMenu(workspace, this.manualSource);
+    this.contextMenu = new ManualLayerContextMenu(
+      workspace,
+      this.manualSource,
+      options.contextMenuWeight,
+    );
     this.workspace.addChangeListener(this.onMainWorkspaceEvent);
   }
 
