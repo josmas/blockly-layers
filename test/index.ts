@@ -177,6 +177,8 @@ class StubBackpack implements Blockly.IPositionable {
 interface FixtureOptions {
   /** Extra distinct variables to create, i.e. that many extra dynamic layers. */
   many: number;
+  /** Passed straight to the plugin's `minReadableScale` option. */
+  minReadableScale?: number;
 }
 
 /**
@@ -227,6 +229,7 @@ function createWorkspace(
       },
     ],
     dynamicProviders: [byComponentProvider],
+    minReadableScale: fixture?.minReadableScale,
   });
   plugin.init();
 
@@ -256,7 +259,7 @@ function createWorkspace(
  * dev-tools playground (which loads a code editor from the network): the
  * workspace sits in a host-like element sized the way App Inventor sizes its
  * own (`width/height: 100%; overflow: hidden`), with the usual zoom and trash
- * controls and a stub backpack. `rtl=1` flips it; `many=N` adds N variable
+ * controls and a stub backpack. `rtl=1` flips it; `renderer=zelos` picks a renderer; `minReadable=0.8` sets the plugin's `minReadableScale`; `many=N` adds N variable
  * layers.
  */
 function mountFixture(rootElement: HTMLElement, params: URLSearchParams) {
@@ -273,8 +276,14 @@ function mountFixture(rootElement: HTMLElement, params: URLSearchParams) {
       trashcan: true,
       scrollbars: true,
       rtl: params.get('rtl') === '1',
+      renderer: params.get('renderer') ?? undefined,
     },
-    {many: Number(params.get('many') ?? 0)},
+    {
+      many: Number(params.get('many') ?? 0),
+      minReadableScale: params.has('minReadable')
+        ? Number(params.get('minReadable'))
+        : undefined,
+    },
   );
 }
 

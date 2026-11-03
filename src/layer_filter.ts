@@ -19,6 +19,7 @@ import * as Blockly from 'blockly/core';
 import {
   fitFits,
   fitScaleFor,
+  MAX_MARKED_STACKS,
   MIN_READABLE_SCALE,
   readingOrder,
   stepIndex,
@@ -29,6 +30,21 @@ export type FilterMode = 'hide' | 'dim';
 type StackState = 'visible' | FilterMode;
 
 const DIM_OPACITY = '0.15';
+const ARRIVED_CLASS = 'blockly-layers-arrived';
+
+Blockly.Css.register(`
+  .${ARRIVED_CLASS} {
+    animation: blockly-layers-arrive 1s ease-out;
+  }
+  @keyframes blockly-layers-arrive {
+    0% { filter: drop-shadow(0 0 0 #fc3); }
+    25% { filter: drop-shadow(0 0 12px #fc3) drop-shadow(0 0 4px #fc3); }
+    100% { filter: drop-shadow(0 0 0 #fc3); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .${ARRIVED_CLASS} { animation: none; }
+  }
+`);
 const FIT_PADDING = 40;
 const ARRANGE_GAP = 20;
 
@@ -203,6 +219,19 @@ export class LayerFilterController {
     this.stepId = stacks[next].id;
     this.focusStack(stacks[next]);
     Blockly.common.setSelected(stacks[next]);
+    this.flash(stacks[next]);
+  }
+
+  /** A brief glow on the stack just stepped to, so the eye finds it. */
+  private flash(stack: Blockly.BlockSvg) {
+    const root = stack.getSvgRoot();
+    root.classList.remove(ARRIVED_CLASS);
+    // Force a reflow so removing and re-adding the class restarts the animation.
+    void root.getBoundingClientRect();
+    root.classList.add(ARRIVED_CLASS);
+    const done = () => root.classList.remove(ARRIVED_CLASS);
+    root.addEventListener('animationend', done, {once: true});
+    setTimeout(done, 1500);
   }
 
   /** Where stepping is: `index` is -1 until the first step. */
@@ -291,10 +320,12 @@ export class LayerFilterController {
    * Draws every given stack with the renderer's "selected" styling. Blockly
    * itself only supports one selected block, so this is a visual mark only:
    * nothing is really selected, and copy/delete/drag act as usual. It lasts
-   * until the next fit, step, or a pointer press on the workspace.
+   * until the next fit, step, or a pointer press on the workspace. Skipped
+   * for very many stacks, where it costs frame rate on some renderers.
    */
   private markStacks(stacks: Blockly.BlockSvg[]) {
     this.clearMarks();
+    if (stacks.length > MAX_MARKED_STACKS) return;
     for (const stack of stacks) {
       stack.pathObject.updateSelected(true);
       this.marked.add(stack.id);

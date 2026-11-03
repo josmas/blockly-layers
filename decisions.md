@@ -92,9 +92,13 @@ extra cost); (D) per-layer tabs (kept as a possible later layer on top of B).
   a visual mark only: nothing is really selected, so copy/delete/drag don't
   act on the group. Marks are cleared by the next fit, a step, a pointer
   press on the workspace, or a selection change, and never strip the block
-  Blockly really has selected. Many marked stacks cost one extra class each
-  (zelos draws a glow filter per marked stack, which could be slow with
-  hundreds). The panel's "◀ n of N ▶" steps through the member stacks at the
+  Blockly really has selected. Measured with zelos (whose selection is
+  an SVG glow filter), frame time while panning is unchanged up to about 30
+  marked stacks and roughly doubles by 60; geras shows no cost at any count.
+  So `MAX_MARKED_STACKS` (30, in `view_policy.ts`) caps it: above that no
+  marks are drawn, and the dimming alone shows the set. (Headless Chromium
+  software rendering; real GPUs will differ, but the shape should hold.)
+  The panel's "◀ n of N ▶" steps through the member stacks at the
   current zoom (wrapping, centring each) and selects the one it lands on, so
   Blockly's own highlight shows which it is. "Fit" repeats the fit on
   request, e.g. after panning away, and "Arrange visible" ends in the same
@@ -116,8 +120,12 @@ extra cost); (D) per-layer tabs (kept as a possible later layer on top of B).
   `getFocusManager().focusNode`, so it also moves DOM focus to the
   workspace (and moving focus away, e.g. into the search box, unselects).
   We first used Alt+[ / Alt+], but `[`/`]` need AltGr on many layouts, which
-  Blockly reads as Ctrl+Alt. Gaps: no test for the `minReadableScale`
-  option beyond the pure `fitScaleFor` floor, and nothing speaks the
+  Blockly reads as Ctrl+Alt. Stepping also plays a one-second glow
+  on the stack it lands on (`blockly-layers-arrived`, a `drop-shadow`
+  keyframe animation, off under `prefers-reduced-motion`), because
+  Blockly's selection outline alone is easy to miss in a big workspace; it
+  is a CSS class removed on `animationend`, with no state. Gap: nothing
+  speaks the
   stepping position to screen readers beyond Blockly's own focus
   announcements. The 0.5 default
   is a judgement call, not measured; hosts tune it with the option. No keyboard

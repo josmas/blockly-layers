@@ -85,3 +85,13 @@ export function stepIndex(current: number, delta: 1 | -1, total: number): number
   if (current < 0) return delta > 0 ? 0 : total - 1;
   return (current + delta + total) % total;
 }
+
+/**
+ * The most stacks a fit will mark with the "selected" styling. Measured with
+ * the zelos renderer, whose selection is an SVG glow filter: frame time
+ * while panning is unchanged up to about 30 marked stacks and roughly doubles
+ * by 60 (geras, which only restyles the outline, shows no cost at any count).
+ * Past this the marks are skipped; dimming already shows which stacks are
+ * active.
+ */
+export const MAX_MARKED_STACKS = 30;

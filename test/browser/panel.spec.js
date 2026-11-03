@@ -790,6 +790,48 @@ test.describe("view follows the layers", () => {
     expect(names).toContain("v2");
   });
 
+  test("the minReadableScale option raises the floor a fit will not go below", async ({page}) => {
+    await open(page, {query: "&many=30&minReadable=0.8"});
+    await moveTo(page, "v1", 0, 0);
+    await moveTo(page, "v2", 40000, 30000);
+    await toggle(page, "v1");
+    await toggle(page, "v2");
+    const {scale} = await view(page);
+    expect(scale).toBeGreaterThanOrEqual(0.8);
+    expect(scale).toBeLessThanOrEqual(1);
+    expect(await label(page)).toBe("2 stacks");
+  });
+
+  test("stepping flashes the stack it lands on, then stops", async ({page}) => {
+    await open(page, {query: "&many=30"});
+    await moveTo(page, "v1", 3000, 0);
+    await moveTo(page, "v2", 0, 3000);
+    await toggle(page, "v1");
+    await toggle(page, "v2");
+    const flashing = () =>
+      page.evaluate(
+        () => document.querySelectorAll(".blockly-layers-arrived").length,
+      );
+    expect(await flashing()).toBe(0);
+    await press(page, "Next visible stack");
+    expect(await flashing()).toBe(1);
+    await page.waitForTimeout(1700);
+    expect(await flashing()).toBe(0);
+  });
+
+  test("marks are skipped when very many stacks are active", async ({page}) => {
+    await open(page, {query: "&many=60&renderer=zelos"});
+    await page.evaluate(() => {
+      const ws = window.fixture.workspace;
+      const p = window.fixture.plugin;
+      const id = p.createManualLayer("Everything");
+      for (const b of ws.getTopBlocks(false)) p.assignToLayer(b.id, id);
+      p.setLayerActive(id, true);
+    });
+    await settle(page);
+    expect(await page.evaluate(() => document.querySelectorAll(".blocklySelected").length)).toBe(0);
+  });
+
   test("stepping does not disturb the view restored on clear", async ({page}) => {
     await open(page, {query: "&many=30"});
     await moveTo(page, "v1", 9000, 9000);
