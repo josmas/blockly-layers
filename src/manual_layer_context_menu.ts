@@ -42,6 +42,8 @@ export class ManualLayerContextMenu {
     private readonly mainWorkspace: Blockly.Workspace,
     private readonly manualSource: ManualSource,
     private readonly baseWeight: number = DEFAULT_CONTEXT_MENU_WEIGHT,
+    private readonly requestName: () => Promise<string | null> = () =>
+      Promise.resolve(null),
   ) {
     this.newLayerItemId = NEW_LAYER_ITEM_ID_PREFIX + mainWorkspace.id;
     this.frameItemIds = ['top-separator', 'heading', 'bottom-separator'].map(
@@ -152,10 +154,12 @@ export class ManualLayerContextMenu {
       callback: (scope) => {
         const topBlock = scope.block?.getRootBlock();
         if (!topBlock) return;
-        const name = window.prompt('New layer name:');
-        if (!name) return;
-        const layerId = this.manualSource.createLayer(name);
-        this.manualSource.assign(topBlock.id, layerId);
+        const topBlockId = topBlock.id;
+        void this.requestName().then((name) => {
+          if (!name) return;
+          const layerId = this.manualSource.createLayer(name);
+          this.manualSource.assign(topBlockId, layerId);
+        });
       },
     });
   }

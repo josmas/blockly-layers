@@ -117,9 +117,11 @@ export class LayersPlugin {
         hasActiveLayers: () => this.activeIds.size > 0,
         onToggle: (id, active) => this.setLayerActive(id, active),
         onAddManualLayer: () => {
-          const name = window.prompt('New layer name:');
-          if (name) this.manualSource.createLayer(name);
+          void this.panel.promptForName().then((name) => {
+            if (name) this.manualSource.createLayer(name);
+          });
         },
+        isLayerNameTaken: (name) => this.isManualLayerNameTaken(name),
         onClearAll: () => this.clearActiveLayers(),
         getActiveLayerNames: () => this.getActiveLayerNames(),
         getFilterMode: () => this.filter.getMode(),
@@ -143,6 +145,7 @@ export class LayersPlugin {
       workspace,
       this.manualSource,
       options.contextMenuWeight,
+      () => this.panel.promptForName(),
     );
     this.workspace.addChangeListener(this.onMainWorkspaceEvent);
   }
@@ -252,6 +255,13 @@ export class LayersPlugin {
   stepVisible(delta: 1 | -1) {
     this.filter.step(delta);
     this.panel.render();
+  }
+
+  private isManualLayerNameTaken(name: string): boolean {
+    const wanted = name.trim().toLowerCase();
+    return this.manualSource
+      .getLayers()
+      .some((layer) => layer.name.trim().toLowerCase() === wanted);
   }
 
   /** Creates a new manual layer (initially unassigned to any stack) and returns its id. */

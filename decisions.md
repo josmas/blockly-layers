@@ -527,9 +527,16 @@ hidden when a screen is inactive (`BlocklyPanel.setVisible` →
   manual playground checklist in `AGENTS.md`.
   Pure logic (`block_matcher`, each `LayerSource`, the serializer) does
   have unit tests, using a headless `Blockly.Workspace`.
-- **"New layer..." uses `window.prompt`** for naming, both in the context
-  menu and the panel's "+" button — functional but not polished; a richer
-  inline input would be a reasonable follow-up.
+- **"New layer..." asks inline, not with `window.prompt`.** Both the panel's
+  "+" and the block context menu's "+ New layer..." call
+  `LayerPanel.promptForName()`, which shows a text input at the top of the
+  panel (expanding a collapsed panel first). Enter accepts a non-empty name
+  that no manual layer has (case-insensitive; the error shows in place);
+  Escape or clicking away cancels. It is non-modal, so nothing blocks the
+  page, and it is created once in `createDom()` like the search box. We did
+  not use `Blockly.dialog.prompt`: it is a host seam, but its default is
+  still `window.prompt`, so it wouldn't have fixed the UX. Removing a layer
+  still uses `window.confirm`.
 - **No UI to browse/remove a stack's existing layer assignments** beyond
   right-clicking it again and toggling each layer off (no "manage layers"
   dialog).
@@ -547,7 +554,6 @@ hidden when a screen is inactive (`BlocklyPanel.setVisible` →
   and confirm manual assignment survives (automated via
   `test/layers_serializer.mocha.js`, but worth an end-to-end playground
   pass too).
-- Consider a richer "new layer" input than `window.prompt`.
 - Consider a "manage layers" view for bulk rename/recolor/delete and
   browsing a stack's current assignments.
 - Decide whether multi-key extraction (a block contributing to more than

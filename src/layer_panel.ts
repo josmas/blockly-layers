@@ -133,6 +133,22 @@ Blockly.Css.register(`
     font-size: 0.75rem;
     color: #555;
   }
+  .blockly-layers-panel-name {
+    padding: 6px 10px;
+    border-bottom: 1px solid #eee;
+    background: #fffbea;
+  }
+  .blockly-layers-panel-name input {
+    box-sizing: border-box;
+    width: 100%;
+    font: inherit;
+  }
+  .blockly-layers-panel-name-error {
+    min-height: 1em;
+    margin-top: 2px;
+    font-size: 0.75rem;
+    color: #b00020;
+  }
   .blockly-layers-panel-search {
     padding: 6px 10px;
     border-bottom: 1px solid #eee;
@@ -240,6 +256,8 @@ export interface LayerPanelCallbacks {
   getFilterMode(): 'hide' | 'dim';
   onToggleFilterMode(): void;
   onArrangeVisible(): void;
+  /** Whether a manual layer with this name already exists (case-insensitive). */
+  isLayerNameTaken(name: string): boolean;
   /** "Fit": zoom (not below a readable scale) and scroll to the visible stacks. */
   onFit(): void;
   /** "◀" / "▶": centre the previous / next visible stack. */
@@ -282,6 +300,11 @@ export class LayerPanel implements Blockly.IPositionable {
   private navButtons: HTMLButtonElement[] = [];
   private modeButton: HTMLButtonElement | null = null;
   private searchWrapper: HTMLElement | null = null;
+  private nameWrapper: HTMLElement | null = null;
+  private nameInput: HTMLInputElement | null = null;
+  private nameError: HTMLElement | null = null;
+  /** Resolves the pending "new layer" name request, if one is open. */
+  private resolveName: ((name: string | null) => void) | null = null;
   private headerDiv: HTMLDivElement | null = null;
   private dockButton: HTMLButtonElement | null = null;
   /** Row/section events, rebuilt on every render(). */
@@ -338,7 +361,99 @@ export class LayerPanel implements Blockly.IPositionable {
     this.workspace.resize();
   }
 
+  /**
+   * Asks for a new layer's name with an inline input at the top of the panel
+   * (expanding the panel if it is collapsed). Enter accepts a non-empty name
+   * that no manual layer already has; Escape or clicking away resolves null.
+   * Starting a second request cancels the first.
+   */
+  promptForName(): Promise<string | null> {
+    this.cancelNamePrompt();
+    if (!this.nameWrapper || !this.nameInput) return Promise.resolve(null);
+    if (this.state.collapsed) {
+      this.state.collapsed = false;
+      this.persist();
+      this.render();
+    }
+    this.nameInput.value = '';
+    this.setNameError('');
+    this.nameWrapper.style.display = '';
+    this.requestReposition();
+    this.nameInput.focus();
+    return new Promise((resolve) => {
+      this.resolveName = resolve;
+    });
+  }
+
+  private cancelNamePrompt() {
+    this.finishNamePrompt(null);
+  }
+
+  private finishNamePrompt(name: string | null) {
+    const resolve = this.resolveName;
+    this.resolveName = null;
+    if (this.nameWrapper) this.nameWrapper.style.display = 'none';
+    this.requestReposition();
+    resolve?.(name);
+  }
+
+  private setNameError(message: string) {
+    if (this.nameError) this.nameError.textContent = message;
+  }
+
+  private createNameBox(): HTMLElement {
+    const wrapper = document.createElement('div');
+    Blockly.utils.dom.addClass(wrapper, 'blockly-layers-panel-name');
+    wrapper.style.display = 'none';
+
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.placeholder = 'New layer name, then Enter';
+    input.setAttribute('aria-label', 'New layer name');
+    this.nameInput = input;
+
+    const error = document.createElement('div');
+    Blockly.utils.dom.addClass(error, 'blockly-layers-panel-name-error');
+    error.setAttribute('role', 'alert');
+    this.nameError = error;
+
+    this.chromeBoundEvents.push(
+      Blockly.browserEvents.conditionalBind(
+        input,
+        'keydown',
+        this,
+        (e: KeyboardEvent) => {
+          if (e.key === 'Escape') {
+            e.stopPropagation();
+            this.cancelNamePrompt();
+          } else if (e.key === 'Enter') {
+            e.preventDefault();
+            const name = input.value.trim();
+            if (!name) {
+              this.setNameError('Enter a name.');
+            } else if (this.callbacks.isLayerNameTaken(name)) {
+              this.setNameError('A layer with that name already exists.');
+            } else {
+              this.finishNamePrompt(name);
+            }
+          } else {
+            this.setNameError('');
+          }
+        },
+      ),
+    );
+    this.chromeBoundEvents.push(
+      Blockly.browserEvents.conditionalBind(input, 'blur', this, () =>
+        this.cancelNamePrompt(),
+      ),
+    );
+
+    wrapper.append(input, error);
+    return wrapper;
+  }
+
   dispose() {
+    this.cancelNamePrompt();
     this.unbindRowEvents();
     for (const event of this.chromeBoundEvents) {
       Blockly.browserEvents.unbind(event);
@@ -352,6 +467,9 @@ export class LayerPanel implements Blockly.IPositionable {
       this.htmlDiv = null;
       this.bodyDiv = null;
       this.searchInput = null;
+      this.nameWrapper = null;
+      this.nameInput = null;
+      this.nameError = null;
       this.clearButton = null;
       this.collapseButton = null;
       this.scopeDiv = null;
@@ -480,7 +598,10 @@ export class LayerPanel implements Blockly.IPositionable {
         ? 'Showing: ' + names.join(', ')
         : 'Showing: all';
     }
-    if (collapsed) return;
+    if (collapsed) {
+      this.cancelNamePrompt();
+      return;
+    }
 
     const query = this.searchQuery.trim().toLowerCase();
     const searching = query.length > 0;
@@ -756,6 +877,9 @@ export class LayerPanel implements Blockly.IPositionable {
     this.navButtons = [previous, next, fit];
     this.navDiv.append(previous, this.navLabel, next, fit);
     this.htmlDiv.appendChild(this.navDiv);
+
+    this.nameWrapper = this.createNameBox();
+    this.htmlDiv.appendChild(this.nameWrapper);
 
     this.searchWrapper = this.createSearchBox();
     this.htmlDiv.appendChild(this.searchWrapper);

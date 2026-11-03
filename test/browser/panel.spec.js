@@ -847,3 +847,90 @@ test.describe("view follows the layers", () => {
     expect(Math.abs(after.y - before.y)).toBeLessThanOrEqual(1);
   });
 });
+
+test.describe("naming a new layer", () => {
+  const NAME = ".blockly-layers-panel-name";
+  const nameInput = (page) => page.locator(`${NAME} input`);
+  const plus = (page) => page.locator(`${HEADER} button[title="New layer"]`);
+  const layerNames = (page) =>
+    page.evaluate(() =>
+      window.fixture.plugin.exportManualLayers().layers.map((l) => l.name),
+    );
+
+  test("+ opens an inline input; Enter creates the layer and closes it", async ({page}) => {
+    await open(page);
+    await expect(page.locator(NAME)).toBeHidden();
+    await plus(page).click();
+    await expect(page.locator(NAME)).toBeVisible();
+    await expect(nameInput(page)).toBeFocused();
+
+    await page.keyboard.type("Checkout flow");
+    await page.keyboard.press("Enter");
+    await settle(page);
+    await expect(page.locator(NAME)).toBeHidden();
+    expect(await layerNames(page)).toEqual(["Demo layer", "Checkout flow"]);
+    await expect(
+      page.locator(".blockly-layers-panel-row", {hasText: "Checkout flow"}),
+    ).toBeVisible();
+  });
+
+  test("an empty or duplicate name is refused in place, without closing", async ({page}) => {
+    await open(page);
+    await plus(page).click();
+    await page.keyboard.press("Enter");
+    await expect(page.locator(`${NAME}-error`)).toHaveText("Enter a name.");
+    await expect(page.locator(NAME)).toBeVisible();
+
+    await page.keyboard.type("  demo LAYER ");
+    await page.keyboard.press("Enter");
+    await expect(page.locator(`${NAME}-error`)).toContainText("already exists");
+    await expect(page.locator(NAME)).toBeVisible();
+    expect(await layerNames(page)).toEqual(["Demo layer"]);
+
+    await page.keyboard.type("x");
+    await expect(page.locator(`${NAME}-error`)).toHaveText("");
+  });
+
+  test("Escape and clicking away cancel without creating anything", async ({page}) => {
+    await open(page);
+    await plus(page).click();
+    await page.keyboard.type("Nope");
+    await page.keyboard.press("Escape");
+    await expect(page.locator(NAME)).toBeHidden();
+
+    await plus(page).click();
+    await page.keyboard.type("Nope");
+    await page.locator(".blockly-layers-panel-search input").click();
+    await expect(page.locator(NAME)).toBeHidden();
+    expect(await layerNames(page)).toEqual(["Demo layer"]);
+  });
+
+  test("a collapsed panel expands to ask", async ({page}) => {
+    await open(page, {state: {collapsed: true}});
+    await expect(page.locator(NAME)).toBeHidden();
+    await page.locator(`${HEADER} button[title="Collapse or expand the panel"]`).waitFor();
+    await plus(page).click();
+    await expect(page.locator(NAME)).toBeVisible();
+    await expect(nameInput(page)).toBeFocused();
+  });
+
+  test("the block context menu's New layer asks inline, then assigns that stack", async ({page}) => {
+    await open(page);
+    const target = await page.evaluate(() => {
+      const b = window.fixture.workspace.getTopBlocks(true)[1];
+      const r = b.getSvgRoot().getBoundingClientRect();
+      return {id: b.id, x: r.left + 6, y: r.top + 6};
+    });
+    await page.mouse.click(target.x, target.y, {button: "right"});
+    await page.locator(".blocklyMenuItem, .blocklyContextMenu [role=menuitem]", {hasText: "New layer"}).first().click();
+    await expect(page.locator(NAME)).toBeVisible();
+    await page.keyboard.type("From menu");
+    await page.keyboard.press("Enter");
+    await settle(page);
+
+    const state = await page.evaluate(() => window.fixture.plugin.exportManualLayers());
+    const created = state.layers.find((l) => l.name === "From menu");
+    expect(created).toBeTruthy();
+    expect(state.membership[target.id]).toContain(created.id);
+  });
+});
