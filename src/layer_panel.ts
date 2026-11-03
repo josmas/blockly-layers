@@ -149,6 +149,21 @@ Blockly.Css.register(`
     font-size: 0.75rem;
     color: #b00020;
   }
+  .blockly-layers-panel-confirm {
+    padding: 6px 10px;
+    border-bottom: 1px solid #eee;
+    background: #fdecea;
+    font-size: 0.8rem;
+  }
+  .blockly-layers-panel-confirm-text {
+    overflow-wrap: anywhere;
+  }
+  .blockly-layers-panel-confirm-actions {
+    display: flex;
+    gap: 6px;
+    justify-content: flex-end;
+    margin-top: 4px;
+  }
   .blockly-layers-panel-search {
     padding: 6px 10px;
     border-bottom: 1px solid #eee;
@@ -303,6 +318,11 @@ export class LayerPanel implements Blockly.IPositionable {
   private nameWrapper: HTMLElement | null = null;
   private nameInput: HTMLInputElement | null = null;
   private nameError: HTMLElement | null = null;
+  private confirmWrapper: HTMLElement | null = null;
+  private confirmText: HTMLElement | null = null;
+  private confirmCancelButton: HTMLButtonElement | null = null;
+  /** Resolves the pending "remove layer?" question, if one is open. */
+  private resolveConfirm: ((ok: boolean) => void) | null = null;
   /** Resolves the pending "new layer" name request, if one is open. */
   private resolveName: ((name: string | null) => void) | null = null;
   private headerDiv: HTMLDivElement | null = null;
@@ -369,6 +389,7 @@ export class LayerPanel implements Blockly.IPositionable {
    */
   promptForName(): Promise<string | null> {
     this.cancelNamePrompt();
+    this.cancelConfirm();
     if (!this.nameWrapper || !this.nameInput) return Promise.resolve(null);
     if (this.state.collapsed) {
       this.state.collapsed = false;
@@ -385,15 +406,111 @@ export class LayerPanel implements Blockly.IPositionable {
     });
   }
 
+  /**
+   * Asks whether to remove a layer, with an inline bar at the top of the
+   * panel (expanding the panel if it is collapsed). Resolves true only for
+   * "Remove"; "Cancel", Escape, collapsing the panel, a new request or
+   * disposal resolve false. Cancel has the focus, so Enter alone never deletes.
+   */
+  confirmRemoval(layerName: string): Promise<boolean> {
+    this.cancelConfirm();
+    this.cancelNamePrompt();
+    if (!this.confirmWrapper || !this.confirmText) {
+      return Promise.resolve(false);
+    }
+    if (this.state.collapsed) {
+      this.state.collapsed = false;
+      this.persist();
+      this.render();
+    }
+    this.confirmText.textContent = `Remove layer "${layerName}"?`;
+    this.confirmWrapper.style.display = '';
+    this.requestReposition();
+    this.confirmCancelButton?.focus();
+    return new Promise((resolve) => {
+      this.resolveConfirm = resolve;
+    });
+  }
+
+  private cancelConfirm() {
+    this.finishConfirm(false);
+  }
+
+  private finishConfirm(ok: boolean) {
+    const resolve = this.resolveConfirm;
+    this.resolveConfirm = null;
+    if (this.confirmWrapper) this.confirmWrapper.style.display = 'none';
+    this.requestReposition();
+    resolve?.(ok);
+  }
+
+  private createConfirmBox(): HTMLElement {
+    const wrapper = document.createElement('div');
+    Blockly.utils.dom.addClass(wrapper, 'blockly-layers-panel-confirm');
+    wrapper.style.display = 'none';
+    wrapper.setAttribute('role', 'alertdialog');
+    wrapper.setAttribute('aria-label', 'Remove layer');
+
+    const text = document.createElement('div');
+    Blockly.utils.dom.addClass(text, 'blockly-layers-panel-confirm-text');
+    this.confirmText = text;
+
+    const actions = document.createElement('div');
+    Blockly.utils.dom.addClass(actions, 'blockly-layers-panel-confirm-actions');
+    const remove = this.createHeaderButton('Remove', 'Remove this layer', () =>
+      this.finishConfirm(true),
+    );
+    const cancel = this.createHeaderButton('Cancel', 'Keep this layer', () =>
+      this.cancelConfirm(),
+    );
+    this.confirmCancelButton = cancel;
+    actions.append(cancel, remove);
+
+    this.chromeBoundEvents.push(
+      Blockly.browserEvents.conditionalBind(
+        wrapper,
+        'keydown',
+        this,
+        (e: KeyboardEvent) => {
+          if (e.key !== 'Escape') return;
+          e.stopPropagation();
+          this.cancelConfirm();
+        },
+      ),
+    );
+
+    wrapper.append(text, actions);
+    return wrapper;
+  }
+
   private cancelNamePrompt() {
     this.finishNamePrompt(null);
   }
 
-  private finishNamePrompt(name: string | null) {
+  /**
+   * `deferHide` is for blur: hiding the input on mousedown would shift the
+   * controls below it before the click completes and the click would miss, so
+   * the request resolves now but the row is hidden once the pointer is up.
+   */
+  private finishNamePrompt(name: string | null, deferHide = false) {
     const resolve = this.resolveName;
     this.resolveName = null;
-    if (this.nameWrapper) this.nameWrapper.style.display = 'none';
-    this.requestReposition();
+    const hide = () => {
+      // A newer request may have reopened the input meanwhile.
+      if (this.resolveName || !this.nameWrapper) return;
+      this.nameWrapper.style.display = 'none';
+      this.requestReposition();
+    };
+    if (deferHide && resolve) {
+      const later = () => setTimeout(hide, 0);
+      document.addEventListener('pointerup', later, {once: true, capture: true});
+      setTimeout(() => {
+        document.removeEventListener('pointerup', later, true);
+        hide();
+      }, 500);
+    } else {
+      hide();
+    }
     resolve?.(name);
   }
 
@@ -444,7 +561,7 @@ export class LayerPanel implements Blockly.IPositionable {
     );
     this.chromeBoundEvents.push(
       Blockly.browserEvents.conditionalBind(input, 'blur', this, () =>
-        this.cancelNamePrompt(),
+        this.finishNamePrompt(null, true),
       ),
     );
 
@@ -454,6 +571,7 @@ export class LayerPanel implements Blockly.IPositionable {
 
   dispose() {
     this.cancelNamePrompt();
+    this.cancelConfirm();
     this.unbindRowEvents();
     for (const event of this.chromeBoundEvents) {
       Blockly.browserEvents.unbind(event);
@@ -470,6 +588,9 @@ export class LayerPanel implements Blockly.IPositionable {
       this.nameWrapper = null;
       this.nameInput = null;
       this.nameError = null;
+      this.confirmWrapper = null;
+      this.confirmText = null;
+      this.confirmCancelButton = null;
       this.clearButton = null;
       this.collapseButton = null;
       this.scopeDiv = null;
@@ -600,6 +721,7 @@ export class LayerPanel implements Blockly.IPositionable {
     }
     if (collapsed) {
       this.cancelNamePrompt();
+      this.cancelConfirm();
       return;
     }
 
@@ -880,6 +1002,9 @@ export class LayerPanel implements Blockly.IPositionable {
 
     this.nameWrapper = this.createNameBox();
     this.htmlDiv.appendChild(this.nameWrapper);
+
+    this.confirmWrapper = this.createConfirmBox();
+    this.htmlDiv.appendChild(this.confirmWrapper);
 
     this.searchWrapper = this.createSearchBox();
     this.htmlDiv.appendChild(this.searchWrapper);

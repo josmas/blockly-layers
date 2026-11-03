@@ -934,3 +934,85 @@ test.describe("naming a new layer", () => {
     expect(state.membership[target.id]).toContain(created.id);
   });
 });
+
+test.describe("removing a layer", () => {
+  const CONFIRM = ".blockly-layers-panel-confirm";
+  const layerNames = (page) =>
+    page.evaluate(() =>
+      window.fixture.plugin.exportManualLayers().layers.map((l) => l.name),
+    );
+  const minus = (page) => page.locator('button[title="Remove Demo layer"]');
+
+  test("the − button asks inline, with Cancel focused, and Cancel keeps the layer", async ({page}) => {
+    await open(page);
+    page.on("dialog", () => {
+      throw new Error("no browser dialog expected");
+    });
+    await expect(page.locator(CONFIRM)).toBeHidden();
+    await minus(page).click();
+    await expect(page.locator(CONFIRM)).toBeVisible();
+    await expect(page.locator(`${CONFIRM}-text`)).toHaveText('Remove layer "Demo layer"?');
+    await expect(page.locator(`${CONFIRM} button`, {hasText: "Cancel"})).toBeFocused();
+
+    await page.locator(`${CONFIRM} button`, {hasText: "Cancel"}).click();
+    await expect(page.locator(CONFIRM)).toBeHidden();
+    expect(await layerNames(page)).toEqual(["Demo layer"]);
+  });
+
+  test("Escape, and pressing Enter on the focused Cancel, both keep the layer", async ({page}) => {
+    await open(page);
+    await minus(page).click();
+    await page.keyboard.press("Escape");
+    await expect(page.locator(CONFIRM)).toBeHidden();
+
+    await minus(page).click();
+    await page.keyboard.press("Enter");
+    await expect(page.locator(CONFIRM)).toBeHidden();
+    expect(await layerNames(page)).toEqual(["Demo layer"]);
+  });
+
+  test("Remove deletes the layer, and an active one stops filtering", async ({page}) => {
+    await open(page);
+    await page.locator(".blockly-layers-panel-row", {hasText: "Demo layer"}).click();
+    await settle(page);
+    expect(
+      await page.evaluate(
+        () =>
+          window.fixture.workspace
+            .getTopBlocks(false)
+            .filter((b) => b.getSvgRoot().style.opacity !== "").length,
+      ),
+    ).toBeGreaterThan(0);
+
+    await minus(page).click();
+    await page.locator(`${CONFIRM} button`, {hasText: "Remove"}).click();
+    await settle(page);
+    await expect(page.locator(CONFIRM)).toBeHidden();
+    expect(await layerNames(page)).toEqual([]);
+    await expect(
+      page.locator(".blockly-layers-panel-row", {hasText: "Demo layer"}),
+    ).toHaveCount(0);
+    expect(
+      await page.evaluate(
+        () =>
+          window.fixture.workspace
+            .getTopBlocks(false)
+            .filter((b) => b.getSvgRoot().style.opacity !== "").length,
+      ),
+    ).toBe(0);
+  });
+
+  test("asking for a name and asking to remove cancel each other", async ({page}) => {
+    await open(page);
+    await page.locator(`${HEADER} button[title="New layer"]`).click();
+    await expect(page.locator(".blockly-layers-panel-name")).toBeVisible();
+    await minus(page).click();
+    await expect(page.locator(CONFIRM)).toBeVisible();
+    await expect(page.locator(".blockly-layers-panel-name")).toBeHidden();
+
+    await page.locator(`${HEADER} button[title="New layer"]`).click();
+    await expect(page.locator(".blockly-layers-panel-name")).toBeVisible();
+    await expect(page.locator(CONFIRM)).toBeHidden();
+    expect(await layerNames(page)).toEqual(["Demo layer"]);
+  });
+});

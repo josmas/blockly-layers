@@ -536,7 +536,16 @@ hidden when a screen is inactive (`BlocklyPanel.setVisible` →
   page, and it is created once in `createDom()` like the search box. We did
   not use `Blockly.dialog.prompt`: it is a host seam, but its default is
   still `window.prompt`, so it wouldn't have fixed the UX. Removing a layer
-  still uses `window.confirm`.
+  asks the same way: the row's "−" calls `LayerPanel.confirmRemoval()`,
+  an inline bar (`Remove layer "X"?` with Cancel and Remove) in the same
+  slot; Cancel has the focus so Enter alone never deletes, Escape cancels,
+  and it is cancelled by a new name request, collapsing the panel, or
+  dispose. It does not cancel on blur (Safari doesn't focus buttons on
+  click, so blur can't tell "clicked Remove" from "clicked away"), so it
+  stays open until answered. Clicking away from the name input resolves it
+  at once but hides the row only after the pointer is up (or 500 ms): hiding
+  it on mousedown shifted the controls below and the click missed. No
+  `window.prompt` or `window.confirm` is left in the plugin.
 - **No UI to browse/remove a stack's existing layer assignments** beyond
   right-clicking it again and toggling each layer off (no "manage layers"
   dialog).

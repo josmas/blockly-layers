@@ -340,8 +340,10 @@ export class LayersPlugin {
           const layer = this.manualSource
             .getLayers()
             .find((l) => l.id === layerId);
-          if (layer && !window.confirm(`Remove layer "${layer.name}"?`)) return;
-          this.removeManualLayer(layerId);
+          if (!layer) return;
+          void this.panel.confirmRemoval(layer.name).then((ok) => {
+            if (ok) this.removeManualLayer(layerId);
+          });
         },
       },
     ];
