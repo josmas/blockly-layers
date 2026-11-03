@@ -120,6 +120,19 @@ Blockly.Css.register(`
     padding: 2px 5px;
     border-bottom: 1px solid #eee;
   }
+  .blockly-layers-panel-nav {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 5px;
+    border-bottom: 1px solid #eee;
+  }
+  .blockly-layers-panel-nav-label {
+    flex: 1;
+    text-align: center;
+    font-size: 0.75rem;
+    color: #555;
+  }
   .blockly-layers-panel-search {
     padding: 6px 10px;
     border-bottom: 1px solid #eee;
@@ -227,6 +240,12 @@ export interface LayerPanelCallbacks {
   getFilterMode(): 'hide' | 'dim';
   onToggleFilterMode(): void;
   onArrangeVisible(): void;
+  /** "Fit": zoom (not below a readable scale) and scroll to the visible stacks. */
+  onFit(): void;
+  /** "◀" / "▶": centre the previous / next visible stack. */
+  onStep(delta: 1 | -1): void;
+  /** Position among the visible stacks; `index` is -1 before the first step. */
+  getStepInfo(): {index: number; total: number};
 }
 
 export interface LayerPanelOptions {
@@ -258,6 +277,9 @@ export class LayerPanel implements Blockly.IPositionable {
   private collapseButton: HTMLButtonElement | null = null;
   private scopeDiv: HTMLDivElement | null = null;
   private toolbarDiv: HTMLDivElement | null = null;
+  private navDiv: HTMLDivElement | null = null;
+  private navLabel: HTMLSpanElement | null = null;
+  private navButtons: HTMLButtonElement[] = [];
   private modeButton: HTMLButtonElement | null = null;
   private searchWrapper: HTMLElement | null = null;
   private headerDiv: HTMLDivElement | null = null;
@@ -334,6 +356,9 @@ export class LayerPanel implements Blockly.IPositionable {
       this.collapseButton = null;
       this.scopeDiv = null;
       this.toolbarDiv = null;
+      this.navDiv = null;
+      this.navLabel = null;
+      this.navButtons = [];
       this.modeButton = null;
       this.searchWrapper = null;
       this.headerDiv = null;
@@ -429,6 +454,20 @@ export class LayerPanel implements Blockly.IPositionable {
       // the rest of the panel doesn't jump as layers are checked/cleared.
       this.toolbarDiv.style.display = collapsed ? 'none' : '';
       this.toolbarDiv.style.visibility = hasActive ? '' : 'hidden';
+    }
+    if (this.navDiv) {
+      this.navDiv.style.display = collapsed ? 'none' : '';
+      this.navDiv.style.visibility = hasActive ? '' : 'hidden';
+      const {index, total} = this.callbacks.getStepInfo();
+      if (this.navLabel) {
+        this.navLabel.textContent =
+          total === 0
+            ? 'No stacks'
+            : index < 0
+              ? `${total} ${total === 1 ? 'stack' : 'stacks'}`
+              : `${index + 1} of ${total}`;
+      }
+      for (const button of this.navButtons) button.disabled = total === 0;
     }
     if (this.modeButton) {
       this.modeButton.textContent =
@@ -696,6 +735,27 @@ export class LayerPanel implements Blockly.IPositionable {
       ),
     );
     this.htmlDiv.appendChild(this.toolbarDiv);
+
+    this.navDiv = document.createElement('div');
+    Blockly.utils.dom.addClass(this.navDiv, 'blockly-layers-panel-nav');
+    const previous = this.createHeaderButton(
+      '◀',
+      'Previous visible stack',
+      () => this.callbacks.onStep(-1),
+    );
+    this.navLabel = document.createElement('span');
+    Blockly.utils.dom.addClass(this.navLabel, 'blockly-layers-panel-nav-label');
+    const next = this.createHeaderButton('▶', 'Next visible stack', () =>
+      this.callbacks.onStep(1),
+    );
+    const fit = this.createHeaderButton(
+      'Fit',
+      'Zoom out to fit the visible stacks (never below a readable size)',
+      () => this.callbacks.onFit(),
+    );
+    this.navButtons = [previous, next, fit];
+    this.navDiv.append(previous, this.navLabel, next, fit);
+    this.htmlDiv.appendChild(this.navDiv);
 
     this.searchWrapper = this.createSearchBox();
     this.htmlDiv.appendChild(this.searchWrapper);

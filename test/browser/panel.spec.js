@@ -425,6 +425,19 @@ test.describe("view save and restore", () => {
   };
   const clear = (page) => page.locator(`${HEADER} button`, {hasText: "Clear"});
 
+  // Parks the stack for variable `name` far from the others (and the view).
+  const moveFar = (page, name, dx = 6000, dy = 4000) =>
+    page.evaluate(
+      ([n, x, y]) => {
+        const ws = window.fixture.workspace;
+        const id = ws.getVariableMap().getVariable(n).getId();
+        ws.getTopBlocks(false)
+          .find((b) => b.type === "variables_set" && b.getFieldValue("VAR") === id)
+          .moveBy(x, y);
+      },
+      [name, dx, dy],
+    );
+
   async function setUserView(page) {
     await page.evaluate(() => {
       const ws = window.fixture.workspace;
@@ -445,6 +458,7 @@ test.describe("view save and restore", () => {
     page,
   }) => {
     await open(page, {query: "&many=30"});
+    await moveFar(page, "v29");
     const before = await setUserView(page);
 
     await toggle(page, "v29");
@@ -461,6 +475,7 @@ test.describe("view save and restore", () => {
     page,
   }) => {
     await open(page, {query: "&many=30"});
+    await moveFar(page, "v29");
     const before = await setUserView(page);
 
     await toggle(page, "v29");
@@ -481,6 +496,7 @@ test.describe("view save and restore", () => {
     page,
   }) => {
     await open(page, {query: "&many=30"});
+    await moveFar(page, "v29");
     await setUserView(page);
     await toggle(page, "v29");
     await settle(page);
@@ -504,5 +520,181 @@ test.describe("view save and restore", () => {
     await page.evaluate(() => window.fixture.plugin.clearActiveLayers());
     await settle(page);
     expectSame(await view(page), second);
+  });
+});
+
+test.describe("view follows the layers", () => {
+  const view = (page) =>
+    page.evaluate(() => {
+      const ws = window.fixture.workspace;
+      return {scale: ws.getScale(), x: ws.scrollX, y: ws.scrollY};
+    });
+  const search = (page) => page.locator(".blockly-layers-panel-search input");
+  const toggle = async (page, text) => {
+    await search(page).fill(text);
+    await page.locator(".blockly-layers-panel-row", {hasText: text}).first().click();
+    await search(page).fill("");
+    await settle(page);
+  };
+  const moveTo = (page, name, x, y) =>
+    page.evaluate(
+      ([n, px, py]) => {
+        const ws = window.fixture.workspace;
+        const id = ws.getVariableMap().getVariable(n).getId();
+        const block = ws
+          .getTopBlocks(false)
+          .find((b) => b.type === "variables_set" && b.getFieldValue("VAR") === id);
+        const xy = block.getRelativeToSurfaceXY();
+        block.moveBy(px - xy.x, py - xy.y);
+      },
+      [name, x, y],
+    );
+  // Is the stack for `name` inside the visible part of the workspace?
+  const inView = (page, name) =>
+    page.evaluate((n) => {
+      const ws = window.fixture.workspace;
+      const id = ws.getVariableMap().getVariable(n).getId();
+      const block = ws
+        .getTopBlocks(false)
+        .find((b) => b.type === "variables_set" && b.getFieldValue("VAR") === id);
+      const r = block.getBoundingRectangle();
+      const v = ws.getMetricsManager().getViewMetrics(true);
+      return (
+        r.left >= v.left && r.right <= v.left + v.width &&
+        r.top >= v.top && r.bottom <= v.top + v.height
+      );
+    }, name);
+  // Names of the variable stacks drawn as selected (highlighted); should be one.
+  const selectedVars = (page) =>
+    page.evaluate(() => {
+      const ws = window.fixture.workspace;
+      return ws
+        .getTopBlocks(false)
+        .filter((b) => b.getSvgRoot().classList.contains("blocklySelected"))
+        .map((b) => ws.getVariableMap().getVariableById(b.getFieldValue("VAR")).getName());
+    });
+  const label = (page) => page.locator(".blockly-layers-panel-nav-label").innerText();
+  const press = async (page, title) => {
+    await page.locator(`${PANEL} button[title="${title}"]`).click();
+    await settle(page);
+  };
+  const FIT = "Zoom out to fit the visible stacks (never below a readable size)";
+
+  async function centre(page, x, y) {
+    await page.evaluate(
+      ([cx, cy]) => {
+        const ws = window.fixture.workspace;
+        ws.setScale(1);
+        const m = ws.getMetrics();
+        ws.scroll(-cx + m.viewWidth / 2, -cy + m.viewHeight / 2);
+      },
+      [x, y],
+    );
+    await settle(page);
+  }
+
+  test("checking a layer fits it, at no more than actual size", async ({page}) => {
+    await open(page, {query: "&many=30"});
+    await moveTo(page, "v1", 9000, 9000);
+    await centre(page, 0, 0);
+    expect(await inView(page, "v1")).toBe(false);
+    await toggle(page, "v1");
+    expect(await inView(page, "v1")).toBe(true);
+    expect((await view(page)).scale).toBeLessThanOrEqual(1);
+  });
+
+  test("checking a layer never zooms below a readable scale", async ({page}) => {
+    await open(page, {query: "&many=30"});
+    await moveTo(page, "v1", 0, 0);
+    await moveTo(page, "v2", 60000, 40000);
+    await toggle(page, "v1");
+    await toggle(page, "v2");
+    expect((await view(page)).scale).toBeGreaterThanOrEqual(0.5);
+    expect(await inView(page, "v1")).toBe(true);
+    expect(await label(page)).toBe("1 of 2");
+  });
+
+  test("Next/Previous visit each visible stack in reading order and wrap", async ({page}) => {
+    await open(page, {query: "&many=30"});
+    await moveTo(page, "v1", 3000, 0);
+    await moveTo(page, "v2", 0, 3000);
+    await moveTo(page, "v3", 6000, 6000);
+    await centre(page, 0, 0);
+    for (const n of ["v1", "v2", "v3"]) await toggle(page, n);
+    // They can't all fit at a readable scale, so the first is already shown.
+    expect(await label(page)).toBe("1 of 3");
+    const scale = (await view(page)).scale;
+
+    expect(await inView(page, "v1")).toBe(true);
+
+    await press(page, "Next visible stack");
+    expect(await label(page)).toBe("2 of 3");
+    expect(await inView(page, "v2")).toBe(true);
+    expect(await selectedVars(page)).toEqual(["v2"]);
+    await press(page, "Next visible stack");
+    expect(await label(page)).toBe("3 of 3");
+    expect(await inView(page, "v3")).toBe(true);
+    expect(await selectedVars(page)).toEqual(["v3"]);
+    await press(page, "Next visible stack");
+    expect(await label(page)).toBe("1 of 3");
+    expect(await selectedVars(page)).toEqual(["v1"]);
+    await press(page, "Previous visible stack");
+    expect(await label(page)).toBe("3 of 3");
+    expect(await inView(page, "v3")).toBe(true);
+    expect((await view(page)).scale).toBe(scale);
+  });
+
+  test("the controls are hidden with no layer active and the count restarts on a new selection", async ({page}) => {
+    await open(page, {query: "&many=30"});
+    await expect(page.locator(".blockly-layers-panel-nav")).toHaveCSS("visibility", "hidden");
+    await toggle(page, "v1");
+    await expect(page.locator(".blockly-layers-panel-nav")).toHaveCSS("visibility", "visible");
+    await press(page, "Next visible stack");
+    expect(await label(page)).toBe("1 of 1");
+    await toggle(page, "v2");
+    expect(await label(page)).toBe("2 stacks");
+  });
+
+  test("Fit shows everything when it can, without going unreadably small", async ({page}) => {
+    await open(page, {query: "&many=30"});
+    await moveTo(page, "v1", 0, 0);
+    await moveTo(page, "v2", 800, 300);
+    await toggle(page, "v1");
+    await toggle(page, "v2");
+    await press(page, FIT);
+    expect(await inView(page, "v1")).toBe(true);
+    expect(await inView(page, "v2")).toBe(true);
+  });
+
+  test("Fit stops at a readable scale and shows the first stack when they cannot all fit", async ({page}) => {
+    await open(page, {query: "&many=30"});
+    await moveTo(page, "v1", 0, 0);
+    await moveTo(page, "v2", 40000, 30000);
+    await toggle(page, "v1");
+    await toggle(page, "v2");
+    await press(page, FIT);
+    const {scale} = await view(page);
+    expect(scale).toBeGreaterThanOrEqual(0.5);
+    expect(await inView(page, "v1")).toBe(true);
+    expect(await inView(page, "v2")).toBe(false);
+    expect(await label(page)).toBe("1 of 2");
+    await press(page, "Next visible stack");
+    expect(await label(page)).toBe("2 of 2");
+    expect(await inView(page, "v2")).toBe(true);
+  });
+
+  test("stepping does not disturb the view restored on clear", async ({page}) => {
+    await open(page, {query: "&many=30"});
+    await moveTo(page, "v1", 9000, 9000);
+    await centre(page, 0, 0);
+    const before = await view(page);
+    await toggle(page, "v1");
+    await press(page, "Next visible stack");
+    await page.locator(`${HEADER} button`, {hasText: "Clear"}).click();
+    await settle(page);
+    const after = await view(page);
+    expect(after.scale).toBeCloseTo(before.scale, 5);
+    expect(Math.abs(after.x - before.x)).toBeLessThanOrEqual(1);
+    expect(Math.abs(after.y - before.y)).toBeLessThanOrEqual(1);
   });
 });

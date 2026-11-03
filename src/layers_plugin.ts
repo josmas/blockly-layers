@@ -125,6 +125,9 @@ export class LayersPlugin {
         onToggleFilterMode: () =>
           this.setFilterMode(this.filter.getMode() === 'hide' ? 'dim' : 'hide'),
         onArrangeVisible: () => this.arrangeVisible(),
+        onFit: () => this.fitToVisible(),
+        onStep: (delta) => this.stepVisible(delta),
+        getStepInfo: () => this.filter.getStepInfo(),
       },
       {mode: options.panelMode, storageKey: options.storageKey},
     );
@@ -164,8 +167,8 @@ export class LayersPlugin {
     } else {
       this.activeIds.delete(id);
     }
-    this.panel.render();
     this.filter.selectionChanged();
+    this.panel.render();
   }
 
   /** Returns the ids of the currently active (checked) layers, across all sources. */
@@ -177,8 +180,8 @@ export class LayersPlugin {
   clearActiveLayers() {
     if (this.activeIds.size === 0) return;
     this.activeIds.clear();
-    this.panel.render();
     this.filter.selectionChanged();
+    this.panel.render();
   }
 
   /** Chooses whether stacks outside the active layers are hidden or dimmed. */
@@ -190,11 +193,23 @@ export class LayersPlugin {
   /** Stacks the visible (active-layer) stacks into a tidy column; undoable. */
   arrangeVisible() {
     this.filter.arrangeVisible();
+    this.panel.render();
   }
 
-  /** Scrolls and zooms the workspace to fit the currently visible stacks. */
+  /**
+   * Scrolls and zooms the workspace to fit the currently visible stacks, but
+   * never below a readable scale; if they don't all fit, shows the first and
+   * leaves the rest to {@link stepVisible}.
+   */
   fitToVisible() {
     this.filter.fitToVisible();
+    this.panel.render();
+  }
+
+  /** Centres the next (1) or previous (-1) visible stack at the current zoom. */
+  stepVisible(delta: 1 | -1) {
+    this.filter.step(delta);
+    this.panel.render();
   }
 
   /** Creates a new manual layer (initially unassigned to any stack) and returns its id. */

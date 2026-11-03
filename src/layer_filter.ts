@@ -16,6 +16,12 @@
  * snap onto something the user can't see.
  */
 import * as Blockly from 'blockly/core';
+import {
+  fitFits,
+  fitScaleFor,
+  readingOrder,
+  stepIndex,
+} from './view_policy';
 
 export type FilterMode = 'hide' | 'dim';
 
@@ -48,6 +54,8 @@ export class LayerFilterController {
    * The user's scroll and zoom from just before filtering began, put back
    * when the last layer is deactivated. Null while nothing is filtered.
    */
+  /** Id of the stack last stepped to, so Next/Previous continue from it. */
+  private stepId: string | null = null;
   private savedView: {scale: number; scrollX: number; scrollY: number} | null =
     null;
 
@@ -88,11 +96,61 @@ export class LayerFilterController {
     this.exempt.clear();
     this.knownTops = new Set(this.workspace.getTopBlocks(false).map((b) => b.id));
     this.apply();
+    this.stepId = null;
     if (filtering) {
       this.fitToVisible();
     } else {
       this.restoreView();
     }
+  }
+
+  private inReadingOrder(stacks: Blockly.BlockSvg[]): Blockly.BlockSvg[] {
+    return readingOrder(stacks, (s) => s.getBoundingRectangle(), this.workspace.RTL);
+  }
+
+  /**
+   * Brings one stack into view at the current zoom: centred if it fits,
+   * otherwise its top corner (Blockly's scroll prefers the top-left).
+   */
+  private focusStack(stack: Blockly.BlockSvg) {
+    const r = stack.getBoundingRectangle();
+    const metrics = this.workspace.getMetrics();
+    const scale = this.workspace.getScale();
+    const fits =
+      (r.right - r.left + 2 * FIT_PADDING) * scale <= metrics.viewWidth &&
+      (r.bottom - r.top + 2 * FIT_PADDING) * scale <= metrics.viewHeight;
+    if (fits) {
+      this.workspace.centerOnBlock(stack.id);
+    } else {
+      this.workspace.scrollBoundsIntoView(
+        new Blockly.utils.Rect(r.top, r.bottom, r.left, r.right),
+        FIT_PADDING,
+      );
+    }
+  }
+
+  /**
+   * Centres the next (or previous) member stack at the current zoom,
+   * wrapping around, and selects it so Blockly's own highlight shows which
+   * one it is. Does not touch the saved view.
+   */
+  step(delta: 1 | -1) {
+    const stacks = this.inReadingOrder(this.getMemberStacks());
+    const current = stacks.findIndex((s) => s.id === this.stepId);
+    const next = stepIndex(current, delta, stacks.length);
+    if (next < 0) return;
+    this.stepId = stacks[next].id;
+    this.focusStack(stacks[next]);
+    Blockly.common.setSelected(stacks[next]);
+  }
+
+  /** Where stepping is: `index` is -1 until the first step. */
+  getStepInfo(): {index: number; total: number} {
+    const stacks = this.inReadingOrder(this.getMemberStacks());
+    return {
+      index: stacks.findIndex((s) => s.id === this.stepId),
+      total: stacks.length,
+    };
   }
 
   private saveView() {
@@ -125,7 +183,11 @@ export class LayerFilterController {
     return this.workspace.getTopBlocks(false).filter((b) => desired.has(b.id));
   }
 
-  /** Scrolls and zooms so every visible member stack is in view. */
+  /**
+   * Zooms and scrolls so every member stack is in view, but never below a
+   * readable scale: if they cannot all fit at that scale, the first one (in
+   * reading order) is shown and Next/Previous reach the rest.
+   */
   fitToVisible() {
     const stacks = this.getMemberStacks();
     if (!stacks.length) return;
@@ -140,17 +202,27 @@ export class LayerFilterController {
       left = Math.min(left, r.left);
       right = Math.max(right, r.right);
     }
+    const bounds = {left, top, right, bottom};
     const metrics = this.workspace.getMetrics();
-    const fitScale = Math.min(
-      (metrics.viewWidth / this.workspace.getScale()) / (right - left + 2 * FIT_PADDING),
-      (metrics.viewHeight / this.workspace.getScale()) / (bottom - top + 2 * FIT_PADDING),
-    ) * this.workspace.getScale();
-    const minScale = this.workspace.options.zoomOptions?.minScale ?? 0.1;
-    this.workspace.setScale(Math.max(minScale, Math.min(1, fitScale)));
-    this.workspace.scrollBoundsIntoView(
-      new Blockly.utils.Rect(top, bottom, left, right),
+    const scale = fitScaleFor(
+      bounds,
+      metrics.viewWidth,
+      metrics.viewHeight,
       FIT_PADDING,
+      this.workspace.options.zoomOptions?.minScale ?? 0,
     );
+    this.workspace.setScale(scale);
+    if (fitFits(bounds, metrics.viewWidth, metrics.viewHeight, FIT_PADDING, scale)) {
+      this.workspace.scrollBoundsIntoView(
+        new Blockly.utils.Rect(top, bottom, left, right),
+        FIT_PADDING,
+      );
+    } else {
+      const first = this.inReadingOrder(stacks)[0];
+      this.stepId = first.id;
+      this.focusStack(first);
+      Blockly.common.setSelected(first);
+    }
   }
 
   /**

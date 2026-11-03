@@ -74,9 +74,29 @@ extra cost); (D) per-layer tabs (kept as a possible later layer on top of B).
   layer restores them (deactivating one of several keeps filtering, so it
   doesn't). Each filtering session saves afresh, and the view is not saved
   again while filtering continues. Whatever panning or zooming happened in
-  between is deliberately discarded. This fixes "no way back" only; the zoom
-  policy of `fitToVisible()` (it can still over-zoom) is still open. Covered
-  by the "view save and restore" Playwright tests.
+  between is deliberately discarded. Covered by the "view save and restore"
+  Playwright tests.
+- **Checking a layer fits it, but never below a readable scale.** The old
+  behaviour (fit every member on every selection change, down to Blockly's
+  `minScale` — 0.1 in App Inventor) made blocks unworkably small in big,
+  sparse projects. The fit stays, because it is the natural response to
+  checking a layer, but it now stops at `MIN_READABLE_SCALE` (0.5, in
+  `view_policy.ts`; a higher workspace `minScale` wins) and never zooms in
+  past 1. If the members can't all fit at that scale, the first one (reading
+  order: top, then left; right in RTL) is shown, centred if it fits, and
+  selected. The panel's "◀ n of N ▶" steps through the member stacks at the
+  current zoom (wrapping, centring each) and selects the one it lands on, so
+  Blockly's own highlight shows which it is. "Fit" repeats the fit on
+  request, e.g. after panning away, and "Arrange visible" ends in the same
+  fit. We first tried "never zoom on toggle, scroll only if nothing is on
+  screen", but Jose found fitting the more natural behaviour. The 0.5 floor
+  is a judgement call, not measured; tune it on real projects. No keyboard
+  shortcuts for stepping yet. The step position is tracked by stack id, so
+  it restarts on a selection change and the label can lag behind blocks
+  added or removed until the next render. Pure parts (reading order, fit
+  scale, step wrap) are unit tested in `test/view_policy.mocha.js`;
+  scroll/zoom/highlight behaviour in the "view follows the layers"
+  Playwright tests.
 - **New stacks stay visible.** A top-level stack that appears while filtering
   (created, or split off another stack) and isn't a member of an active
   layer is exempt from hiding until the next selection change; this replaces
