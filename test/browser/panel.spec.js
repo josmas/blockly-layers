@@ -571,7 +571,11 @@ test.describe("view follows the layers", () => {
       return ws
         .getTopBlocks(false)
         .filter((b) => b.getSvgRoot().classList.contains("blocklySelected"))
-        .map((b) => ws.getVariableMap().getVariableById(b.getFieldValue("VAR")).getName());
+        .map((b) =>
+          b.type === "variables_set"
+            ? ws.getVariableMap().getVariableById(b.getFieldValue("VAR")).getName()
+            : b.type,
+        );
     });
   const label = (page) => page.locator(".blockly-layers-panel-nav-label").innerText();
   const press = async (page, title) => {
@@ -718,6 +722,72 @@ test.describe("view follows the layers", () => {
     await settle(page);
     // Only the stepped-to stack may stay selected; no stray marks remain.
     expect((await selectedVars(page)).length).toBeLessThanOrEqual(1);
+  });
+
+  test("N and B enter the visible stacks, then Blockly's own navigation skips filtered ones", async ({page}) => {
+    await open(page, {query: "&many=30"});
+    await moveTo(page, "v1", 3000, 0);
+    await moveTo(page, "v2", 0, 3000);
+    await moveTo(page, "v3", 6000, 6000);
+    const spot = await page.evaluate(() => {
+      const r = window.fixture.workspace.getParentSvg().getBoundingClientRect();
+      for (let y = r.top + 40; y < r.bottom - 40; y += 25) {
+        for (let x = r.left + 40; x < r.right - 40; x += 25) {
+          const el = document.elementFromPoint(x, y);
+          if (el && el.classList.contains("blocklyMainBackground")) return {x, y};
+        }
+      }
+      return null;
+    });
+    const click = async () => {
+      await page.mouse.click(spot.x, spot.y);
+      await settle(page);
+    };
+    await click();
+    // No layer active: Blockly's own shortcut handles it; ours must not step.
+    await page.keyboard.press("n");
+    await settle(page);
+    expect(await page.locator(".blockly-layers-panel-nav-label").innerText()).not.toMatch(/ of /);
+
+    await toggle(page, "v1");
+    await toggle(page, "v3");
+    await click();
+    // Nothing selected: ours takes N and enters the first visible stack.
+    await page.keyboard.press("n");
+    await settle(page);
+    expect(await label(page)).toBe("1 of 2");
+    expect(await selectedVars(page)).toEqual(["v1"]);
+    // Now something is focused: Blockly's N moves on, skipping the hidden v2.
+    await page.keyboard.press("n");
+    await settle(page);
+    expect(await selectedVars(page)).toEqual(["v3"]);
+    expect(await label(page)).toBe("2 of 2");
+    await page.keyboard.press("b");
+    await settle(page);
+    expect(await selectedVars(page)).toEqual(["v1"]);
+    expect(await label(page)).toBe("1 of 2");
+
+    // With no filter, Blockly reaches v2 again.
+    await page.locator(`${HEADER} button`, {hasText: "Clear"}).click();
+    await settle(page);
+    // Click a real block (the first demo stack) to give it keyboard focus.
+    const onBlock = await page.evaluate(() => {
+      const r = window.fixture.workspace
+        .getTopBlocks(true)[0]
+        .getSvgRoot()
+        .getBoundingClientRect();
+      return {x: r.left + 6, y: r.top + 6};
+    });
+    await page.mouse.click(onBlock.x, onBlock.y);
+    await settle(page);
+    const names = [];
+    for (let i = 0; i < 40 && !names.includes("v2"); i++) {
+      await page.keyboard.press("n");
+      await settle(page);
+      names.push(...(await selectedVars(page)));
+    }
+    expect(names.length).toBeGreaterThan(0);
+    expect(names).toContain("v2");
   });
 
   test("stepping does not disturb the view restored on clear", async ({page}) => {

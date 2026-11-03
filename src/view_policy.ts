@@ -19,10 +19,11 @@ export interface Box {
 }
 
 /**
- * The smallest scale an explicit "Fit" will pick. Below this, blocks are too
- * small to work on, so Fit shows the first stack at this scale instead and
- * the stepping controls reach the rest. (Blockly's own default `minScale` is
- * 0.3 and App Inventor's is 0.1, neither of which keeps blocks readable.)
+ * Default for the smallest scale a fit will pick. Below this, blocks are too
+ * small to work on, so the fit shows the first stack at this scale instead
+ * and the stepping controls reach the rest. A host's own zoom `minScale` is
+ * about how far a user may zoom, not how small is still readable, so it can
+ * be far lower than this.
  */
 export const MIN_READABLE_SCALE = 0.5;
 
@@ -44,21 +45,21 @@ export function readingOrder<T>(
  * The scale that fits `bounds` (workspace units) in a view of the given pixel
  * size, kept between a readable floor and 1 (never zoom in past actual size).
  *
- * @param minScale The workspace's own lower limit; the floor is whichever of
- *     this and {@link MIN_READABLE_SCALE} is larger.
+ * @param floor The smallest scale to return, even if that means `bounds`
+ *     don't fit.
  */
 export function fitScaleFor(
   bounds: Box,
   viewWidth: number,
   viewHeight: number,
   padding: number,
-  minScale = 0,
+  floor = MIN_READABLE_SCALE,
 ): number {
   const fit = Math.min(
     viewWidth / (bounds.right - bounds.left + 2 * padding),
     viewHeight / (bounds.bottom - bounds.top + 2 * padding),
   );
-  return Math.max(Math.max(minScale, MIN_READABLE_SCALE), Math.min(1, fit));
+  return Math.max(floor, Math.min(1, fit));
 }
 
 /** Whether `fitScaleFor` had to give up on showing everything. */

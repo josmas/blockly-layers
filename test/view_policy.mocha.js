@@ -41,11 +41,12 @@ suite("view_policy", () => {
       const s = fitScaleFor(box(0, 0, 100000, 100000), 800, 600, 40);
       assert.equal(s, MIN_READABLE_SCALE);
     });
-    test("honours a workspace minScale higher than the floor", () => {
+    test("uses the floor it is given", () => {
       assert.equal(fitScaleFor(box(0, 0, 100000, 100000), 800, 600, 40, 0.7), 0.7);
+      assert.equal(fitScaleFor(box(0, 0, 100000, 100000), 800, 600, 40, 0.2), 0.2);
     });
-    test("ignores a workspace minScale lower than the floor (App Inventor's 0.1)", () => {
-      assert.equal(fitScaleFor(box(0, 0, 100000, 100000), 800, 600, 40, 0.1), MIN_READABLE_SCALE);
+    test("defaults the floor to the readable scale", () => {
+      assert.equal(fitScaleFor(box(0, 0, 100000, 100000), 800, 600, 40), MIN_READABLE_SCALE);
     });
     test("never zooms in past 1", () => {
       assert.equal(fitScaleFor(box(0, 0, 10, 10), 800, 600, 40), 1);

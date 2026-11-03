@@ -98,4 +98,12 @@ export interface LayersPluginOptions {
    * `'blockly-layers:panel'`; scope it if one origin hosts several editors.
    */
   storageKey?: string;
+
+  /**
+   * The smallest zoom a fit (checking a layer, or the panel's "Fit") will pick.
+   * If the active layer's stacks can't all fit at this scale, the first is
+   * shown and the panel's ◀ ▶ step through the rest. Defaults to `0.5`; a
+   * zoom `minScale` set on the workspace that is higher than this wins.
+   */
+  minReadableScale?: number;
 }

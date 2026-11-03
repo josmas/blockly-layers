@@ -67,6 +67,7 @@ export class LayersPlugin {
   private readonly dynamicSources: DynamicSource[];
   private readonly sources: LayerSource[];
   private readonly activeIds = new Set<string>();
+  private shortcutNames: string[] = [];
   private readonly panel: LayerPanel;
   private readonly filter: LayerFilterController;
   private readonly contextMenu: ManualLayerContextMenu;
@@ -135,7 +136,9 @@ export class LayersPlugin {
       workspace,
       () => this.getDesiredTopBlockIds(),
       () => this.activeIds.size > 0,
+      options.minReadableScale,
     );
+    this.filter.onStepChange = () => this.panel.render();
     this.contextMenu = new ManualLayerContextMenu(
       workspace,
       this.manualSource,
@@ -149,11 +152,50 @@ export class LayersPlugin {
     registerManualSource(this.workspace, this.manualSource);
     this.contextMenu.init();
     this.panel.init();
+    this.registerStepShortcuts();
+  }
+
+  /**
+   * Blockly 13's N / B jump to the next / previous stack, but only once a
+   * block is focused. While layers are active and nothing is selected, take
+   * those keys ourselves to enter the visible stacks; otherwise return to
+   * Blockly's own handler, which the filter's navigator wrapper already
+   * restricts to visible stacks. Shortcuts are global, so each is named per
+   * workspace and ignores the others.
+   */
+  private registerStepShortcuts() {
+    const registry = Blockly.ShortcutRegistry.registry;
+    const make = (delta: 1 | -1, keyCode: number) => {
+      const name = `blockly-layers:step:${delta}:${this.workspace.id}`;
+      registry.register({
+        name,
+        allowCollision: true,
+        preconditionFn: (ws) =>
+          ws === this.workspace &&
+          this.activeIds.size > 0 &&
+          !Blockly.common.getSelected() &&
+          !ws.isDragging() &&
+          !Blockly.WidgetDiv.isVisible() &&
+          !Blockly.DropDownDiv.isVisible(),
+        callback: () => {
+          this.stepVisible(delta);
+          return true;
+        },
+        keyCodes: [keyCode],
+      });
+      this.shortcutNames.push(name);
+    };
+    make(1, Blockly.utils.KeyCodes.N);
+    make(-1, Blockly.utils.KeyCodes.B);
   }
 
   /** Disposes of the plugin, restoring any hidden or dimmed stacks. */
   dispose() {
     this.workspace.removeChangeListener(this.onMainWorkspaceEvent);
+    for (const name of this.shortcutNames) {
+      Blockly.ShortcutRegistry.registry.unregister(name);
+    }
+    this.shortcutNames = [];
     this.filter.dispose();
     this.contextMenu.dispose();
     this.panel.dispose();

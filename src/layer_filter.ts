@@ -19,6 +19,7 @@ import * as Blockly from 'blockly/core';
 import {
   fitFits,
   fitScaleFor,
+  MIN_READABLE_SCALE,
   readingOrder,
   stepIndex,
 } from './view_policy';
@@ -56,12 +57,19 @@ export class LayerFilterController {
    */
   /** Id of the stack last stepped to, so Next/Previous continue from it. */
   private stepId: string | null = null;
+  /** Called when the stepping position changes, so the panel can redraw. */
+  onStepChange: (() => void) | null = null;
+  private restoreNavigator: (() => void) | null = null;
   /** Stacks currently drawn with the multi-stack "selected" mark. */
   private readonly marked = new Set<string>();
   private savedView: {scale: number; scrollX: number; scrollY: number} | null =
     null;
 
   private readonly onWorkspaceEvent = (event: Blockly.Events.Abstract) => {
+    if (event.type === Blockly.Events.SELECTED) {
+      this.followSelection(event as Blockly.Events.Selected);
+      return;
+    }
     if (!STRUCTURAL_EVENT_TYPES.has(event.type)) return;
     if (!this.isFilterActive()) return;
     this.scheduleReapply();
@@ -77,11 +85,57 @@ export class LayerFilterController {
     private readonly workspace: Blockly.WorkspaceSvg,
     private readonly getDesiredTopBlockIds: () => Set<string>,
     private readonly isFilterActive: () => boolean,
+    private readonly minReadableScale: number = MIN_READABLE_SCALE,
   ) {
     this.workspace.addChangeListener(this.onWorkspaceEvent);
     this.workspace
       .getParentSvg()
       .addEventListener('pointerdown', this.onPointerDown, true);
+    this.restrictKeyboardNavigation();
+  }
+
+  /**
+   * Blockly's keyboard navigation (N / B, and arrowing past the end of a
+   * stack) walks every top-level stack, including ones dimmed or hidden by a
+   * layer filter. Skip those while filtering, so keyboard users only land on
+   * stacks they can see.
+   */
+  private restrictKeyboardNavigation() {
+    const navigator = this.workspace.getNavigator();
+    const original = navigator.navigateStacks;
+    const wrapped = (current: Blockly.IFocusableNode, delta: number) => {
+      let target = original.call(navigator, current, delta);
+      if (!this.isFilterActive()) return target;
+      const limit = this.workspace.getTopBlocks(false).length;
+      for (let i = 0; target && i < limit; i++) {
+        const root =
+          navigator.getSourceBlockFromNode(target)?.getRootBlock() ?? target;
+        if (this.isStackVisible((root as Blockly.BlockSvg).id)) return target;
+        target = original.call(navigator, target, delta);
+      }
+      return null;
+    };
+    navigator.navigateStacks = wrapped;
+    this.restoreNavigator = () => {
+      if (navigator.navigateStacks === wrapped) {
+        navigator.navigateStacks = original;
+      }
+    };
+  }
+
+  private isStackVisible(id: string): boolean {
+    return (this.applied.get(id) ?? 'visible') === 'visible';
+  }
+
+  /** Keeps the stepping position in line with Blockly's own navigation. */
+  private followSelection(event: Blockly.Events.Selected) {
+    if (!this.isFilterActive() || !event.newElementId) return;
+    const block = this.workspace.getBlockById(event.newElementId);
+    const id = block?.getRootBlock().id ?? null;
+    if (!id || id === this.stepId) return;
+    if (!this.getMemberStacks().some((s) => s.id === id)) return;
+    this.stepId = id;
+    this.onStepChange?.();
   }
 
   getMode(): FilterMode {
@@ -216,7 +270,10 @@ export class LayerFilterController {
       metrics.viewWidth,
       metrics.viewHeight,
       FIT_PADDING,
-      this.workspace.options.zoomOptions?.minScale ?? 0,
+      Math.max(
+        this.minReadableScale,
+        this.workspace.options.zoomOptions?.minScale ?? 0,
+      ),
     );
     this.workspace.setScale(scale);
     if (fitFits(bounds, metrics.viewWidth, metrics.viewHeight, FIT_PADDING, scale)) {
@@ -289,6 +346,8 @@ export class LayerFilterController {
       .getParentSvg()
       .removeEventListener('pointerdown', this.onPointerDown, true);
     this.clearMarks();
+    this.restoreNavigator?.();
+    this.restoreNavigator = null;
     this.exempt.clear();
     this.knownTops.clear();
     for (const block of this.workspace.getTopBlocks(false)) {

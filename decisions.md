@@ -77,11 +77,13 @@ extra cost); (D) per-layer tabs (kept as a possible later layer on top of B).
   between is deliberately discarded. Covered by the "view save and restore"
   Playwright tests.
 - **Checking a layer fits it, but never below a readable scale.** The old
-  behaviour (fit every member on every selection change, down to Blockly's
-  `minScale` — 0.1 in App Inventor) made blocks unworkably small in big,
+  behaviour (fit every member on every selection change, down to the
+  workspace's `minScale`, which a host may set very low) made blocks
+  unworkably small in big,
   sparse projects. The fit stays, because it is the natural response to
-  checking a layer, but it now stops at `MIN_READABLE_SCALE` (0.5, in
-  `view_policy.ts`; a higher workspace `minScale` wins) and never zooms in
+  checking a layer, but it now stops at the `minReadableScale` option
+  (default `MIN_READABLE_SCALE` 0.5, in `view_policy.ts`; a higher workspace
+  `minScale` wins) and never zooms in
   past 1. If the members can't all fit at that scale, the first one (reading
   order: top, then left; right in RTL) is shown, centred if it fits. Every
   fit also marks all member stacks with the renderer's "selected" styling
@@ -97,8 +99,28 @@ extra cost); (D) per-layer tabs (kept as a possible later layer on top of B).
   Blockly's own highlight shows which it is. "Fit" repeats the fit on
   request, e.g. after panning away, and "Arrange visible" ends in the same
   fit. We first tried "never zoom on toggle, scroll only if nothing is on
-  screen", but Jose found fitting the more natural behaviour. The 0.5 floor
-  is a judgement call, not measured; tune it on real projects. No keyboard
+  screen", but Jose found fitting the more natural behaviour. Keyboard: Blockly 13's
+  navigation (N / B for next/previous stack, arrowing past a stack's end)
+  walks `getTopBoundedElements`, i.e. every stack including dimmed or
+  hidden ones, and `canBeFocused()` is always true, so a keyboard user could
+  land on something invisible. While filtering, the filter wraps the
+  workspace navigator's `navigateStacks` (an instance-level patch, undone on
+  dispose, since `Navigator` isn't exported to subclass) to skip
+  non-visible stacks. Blockly's N / B only work once a block is focused, so
+  the plugin registers its own N / B (colliding on purpose; the newest
+  shortcut runs first) that apply only when a layer is active and nothing is
+  selected, and step into the first visible stack; otherwise they defer to
+  Blockly's. A `SELECTED` event on a member stack moves the "n of N" label,
+  so native navigation and the ◀ ▶ buttons share one position. Stepping
+  selects through `Blockly.common.setSelected`, which in Blockly 13 is
+  `getFocusManager().focusNode`, so it also moves DOM focus to the
+  workspace (and moving focus away, e.g. into the search box, unselects).
+  We first used Alt+[ / Alt+], but `[`/`]` need AltGr on many layouts, which
+  Blockly reads as Ctrl+Alt. Gaps: no test for the `minReadableScale`
+  option beyond the pure `fitScaleFor` floor, and nothing speaks the
+  stepping position to screen readers beyond Blockly's own focus
+  announcements. The 0.5 default
+  is a judgement call, not measured; hosts tune it with the option. No keyboard
   shortcuts for stepping yet. The step position is tracked by stack id, so
   it restarts on a selection change and the label can lag behind blocks
   added or removed until the next render. Pure parts (reading order, fit
