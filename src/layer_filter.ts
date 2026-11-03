@@ -16,6 +16,7 @@
  * snap onto something the user can't see.
  */
 import * as Blockly from 'blockly/core';
+import {findFreeSpot, packColumns} from './arrange_policy';
 import {
   fitFits,
   fitScaleFor,
@@ -47,6 +48,8 @@ Blockly.Css.register(`
 `);
 const FIT_PADDING = 40;
 const ARRANGE_GAP = 20;
+/** Clearance kept between the arranged block and every other stack. */
+const ARRANGE_PADDING = 40;
 
 const STRUCTURAL_EVENT_TYPES = new Set<string>([
   Blockly.Events.BLOCK_CREATE,
@@ -345,26 +348,55 @@ export class LayerFilterController {
   private readonly onPointerDown = () => this.clearMarks();
 
   /**
-   * Stacks the visible member stacks into one column, anchored where the
-   * topmost-leftmost one already is. A real, undoable move (one undo group),
-   * and only ever run on explicit request.
+   * Gathers the member stacks into wrapped columns and puts that block in
+   * the free spot nearest the view, so it overlaps nothing, dimmed or hidden
+   * stacks included, once the filter is cleared. A real, undoable move (one
+   * undo group), and only ever run on explicit request.
    */
   arrangeVisible() {
-    const stacks = this.getMemberStacks();
+    const stacks = this.inReadingOrder(this.getMemberStacks());
     if (stacks.length < 2) return;
-    const rects = new Map(stacks.map((s) => [s, s.getBoundingRectangle()]));
-    const ordered = [...stacks].sort(
-      (a, b) => rects.get(a)!.top - rects.get(b)!.top,
+    const rects = stacks.map((s) => s.getBoundingRectangle());
+    const sizes = rects.map((r) => ({
+      width: r.right - r.left,
+      height: r.bottom - r.top,
+    }));
+    const rtl = this.workspace.RTL;
+
+    const metrics = this.workspace.getMetrics();
+    const scale = Math.min(
+      1,
+      Math.max(this.minReadableScale, this.workspace.getScale()),
     );
-    const anchorLeft = Math.min(...ordered.map((s) => rects.get(s)!.left));
-    let cursorY = rects.get(ordered[0])!.top;
+    const packed = packColumns(
+      sizes,
+      (metrics.viewHeight - 2 * FIT_PADDING) / scale,
+      ARRANGE_GAP,
+    );
+
+    const moving = new Set<unknown>(stacks);
+    const obstacles = this.workspace
+      .getTopBoundedElements(false)
+      .filter((e) => !moving.has(e))
+      .map((e) => e.getBoundingRectangle());
+    const view = this.workspace.getMetricsManager().getViewMetrics(true);
+    const spot = findFreeSpot(
+      packed.width,
+      packed.height,
+      obstacles,
+      {x: view.left + view.width / 2, y: view.top + view.height / 2},
+      ARRANGE_PADDING,
+      rtl,
+    );
+
     Blockly.Events.setGroup(true);
     try {
-      for (const stack of ordered) {
-        const r = rects.get(stack)!;
-        stack.moveBy(anchorLeft - r.left, cursorY - r.top);
-        cursorY += r.bottom - r.top + ARRANGE_GAP;
-      }
+      stacks.forEach((stack, i) => {
+        const r = rects[i];
+        const off = packed.offsets[i];
+        const x = rtl ? packed.width - off.x - sizes[i].width : off.x;
+        stack.moveBy(spot.left + x - r.left, spot.top + off.y - r.top);
+      });
     } finally {
       Blockly.Events.setGroup(false);
     }

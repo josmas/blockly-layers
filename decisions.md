@@ -65,10 +65,31 @@ extra cost); (D) per-layer tabs (kept as a possible later layer on top of B).
   from active layers that happen to have no members.
 - **Positions are real.** Stacks keep their true coordinates. Instead of the
   old auto-arrange, each selection change scrolls and zooms to fit the
-  visible stacks, and an explicit "Arrange visible" action stacks them into
-  a column as a real, undoable move (one event group). Compaction is never
-  automatic, because moving blocks as a side effect of toggling a checkbox
-  would silently rewrite the saved project.
+  visible stacks, and an explicit "Arrange visible" action gathers them as a
+  real, undoable move (one event group; see "Arrange goes to free space").
+  Compaction is never automatic, because moving blocks as a side effect of
+  toggling a checkbox would silently rewrite the saved project.
+- **Arrange goes to free space.** The old arrange stacked the visible stacks
+  into one column where the topmost already was, ignoring dimmed and hidden
+  stacks, so once the filter was cleared the column sat on top of other
+  blocks. Now (`arrange_policy.ts`, pure and unit tested) the member stacks,
+  in reading order, are wrapped into columns about one view tall at the
+  current zoom (clamped to the readable-scale range), and that block is
+  placed at the free spot nearest the centre of the view: candidate corners
+  come from the edges of the 60 obstacles closest to the view (every other
+  top-level stack, dimmed or hidden included, and workspace comments), each
+  kept 40 units clear; the members' own old positions count as free. If no
+  candidate fits, the block goes just past the right edge of everything
+  (left in RTL), level with the topmost obstacle, which grows the project's
+  footprint, which was an explicit trade-off. So a gap further out than the
+  60 nearest obstacles' edges is missed in favour of going outside; fine in
+  practice, and the cap keeps it fast with hundreds of stacks. It always
+  relocates, even if the stacks happened to be fine, and it ends in the
+  same fit. Single stacks aren't arranged. Covered by `arrange_policy.mocha.js`
+  and the "arrange visible" Playwright tests (no overlap after clearing,
+  wrapping, one undo restores everything). Not done: re-flowing arranged
+  stacks later if something is dropped on them, and an RTL-specific
+  Playwright test.
 - **The prior view comes back.** The first selection change that starts
   filtering saves the workspace's scale and scroll; deactivating the last
   layer restores them (deactivating one of several keeps filtering, so it

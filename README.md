@@ -84,7 +84,7 @@ Each user's choice — mode, position, dock width, collapsed state and expanded 
 - `plugin.dispose()` — tears down the panel and context menu, and restores any hidden stacks.
 - `plugin.setLayerActive(id, active)` / `plugin.getActiveLayerIds()` — show/hide any layer (from any source) programmatically, or read which are currently checked.
 - `plugin.setFilterMode('hide' | 'dim')` — how stacks outside the active layers are shown (default `'dim'`).
-- `plugin.arrangeVisible()` / `plugin.fitToVisible()` — stack the visible stacks into a column (undoable) / zoom and scroll to fit them, never below a readable scale (0.5); if they don't all fit, the first is shown.
+- `plugin.arrangeVisible()` / `plugin.fitToVisible()` — gather the visible stacks into wrapped columns in the free space nearest the view, overlapping nothing (undoable) / zoom and scroll to fit them, never below a readable scale (0.5); if they don't all fit, the first is shown.
 - `plugin.stepVisible(1 | -1)` — centre and select the next/previous visible stack at the current zoom (the panel's ◀ ▶ buttons). The `N` / `B` keys do the same: Blockly's own next/previous-stack keys, which the plugin restricts to visible stacks while layers are active (and extends so they work before any block is selected).
 
 Checking a layer fits its stacks into view (never below a readable scale, never past actual size). Every fit marks all of them with Blockly's selected styling (visual only: nothing is really selected, and the marks go away on the next click on the workspace). The panel's ◀ ▶ buttons step through them and really select the current one. Clearing the last active layer restores the scroll and zoom from before filtering.

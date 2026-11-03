@@ -973,7 +973,7 @@ export class LayerPanel implements Blockly.IPositionable {
     this.toolbarDiv.appendChild(
       this.createHeaderButton(
         'Arrange visible',
-        'Stack the visible stacks into one column (undoable)',
+        'Gather the visible stacks into columns in free space (undoable)',
         () => this.callbacks.onArrangeVisible(),
       ),
     );

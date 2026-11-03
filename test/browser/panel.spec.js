@@ -1016,3 +1016,95 @@ test.describe("removing a layer", () => {
     expect(await layerNames(page)).toEqual(["Demo layer"]);
   });
 });
+
+test.describe("arrange visible", () => {
+  const ARRANGE = 'button[title="Gather the visible stacks into columns in free space (undoable)"]';
+
+  // Makes a manual layer of `count` variable stacks, scattered, and returns
+  // the layer id and those stacks' ids.
+  const scatter = (page, count) =>
+    page.evaluate((n) => {
+      const ws = window.fixture.workspace;
+      const plugin = window.fixture.plugin;
+      const vars = ws
+        .getTopBlocks(false)
+        .filter((b) => b.type === "variables_set")
+        .slice(0, n);
+      vars.forEach((b, i) => {
+        const xy = b.getRelativeToSurfaceXY();
+        b.moveBy(((i * 977) % 1800) - xy.x, ((i * 613) % 1400) - xy.y);
+      });
+      const id = plugin.createManualLayer("Mine");
+      for (const b of vars) plugin.assignToLayer(b.id, id);
+      return {id, ids: vars.map((b) => b.id)};
+    }, count);
+
+  const rects = (page) =>
+    page.evaluate(() => {
+      const ws = window.fixture.workspace;
+      return ws.getTopBlocks(false).map((b) => {
+        const r = b.getBoundingRectangle();
+        return {id: b.id, left: r.left, top: r.top, right: r.right, bottom: r.bottom};
+      });
+    });
+
+  const overlapping = (all, ids) => {
+    const mine = all.filter((r) => ids.includes(r.id));
+    const others = all.filter((r) => !ids.includes(r.id));
+    return mine.filter((m) =>
+      others.some(
+        (o) => m.left < o.right && m.right > o.left && m.top < o.bottom && m.bottom > o.top,
+      ),
+    );
+  };
+
+  test("the arranged stacks overlap nothing once the layers are cleared", async ({page}) => {
+    await open(page, {query: "&many=40"});
+    const {id, ids} = await scatter(page, 12);
+    await page.evaluate((layer) => window.fixture.plugin.setLayerActive(layer, true), id);
+    await settle(page);
+    await page.locator(`${PANEL} ${ARRANGE}`).click();
+    await settle(page);
+    await page.evaluate(() => window.fixture.plugin.clearActiveLayers());
+    await settle(page);
+    expect(overlapping(await rects(page), ids)).toEqual([]);
+  });
+
+  test("they wrap into several columns instead of one tall strip", async ({page}) => {
+    await open(page, {query: "&many=60"});
+    const {id, ids} = await scatter(page, 50);
+    await page.evaluate((layer) => window.fixture.plugin.setLayerActive(layer, true), id);
+    await settle(page);
+    await page.locator(`${PANEL} ${ARRANGE}`).click();
+    await settle(page);
+    const mine = (await rects(page)).filter((r) => ids.includes(r.id));
+    const columns = new Set(mine.map((r) => Math.round(r.left)));
+    expect(columns.size).toBeGreaterThan(1);
+    const tallest = Math.max(...mine.map((r) => r.bottom)) - Math.min(...mine.map((r) => r.top));
+    const view = await page.evaluate(
+      () => window.fixture.workspace.getMetrics().viewHeight / window.fixture.workspace.getScale(),
+    );
+    // Roughly a screen tall at the zoom the fit settled on, not 50 stacks tall.
+    expect(tallest).toBeLessThan(view * 2);
+  });
+
+  test("one undo puts every stack back where it was", async ({page}) => {
+    await open(page, {query: "&many=40"});
+    const {id, ids} = await scatter(page, 8);
+    const before = (await rects(page)).filter((r) => ids.includes(r.id));
+    await page.evaluate((layer) => window.fixture.plugin.setLayerActive(layer, true), id);
+    await settle(page);
+    await page.locator(`${PANEL} ${ARRANGE}`).click();
+    await settle(page);
+    const moved = (await rects(page)).filter((r) => ids.includes(r.id));
+    expect(moved).not.toEqual(before);
+    await page.evaluate(() => window.fixture.workspace.undo(false));
+    await settle(page);
+    const after = (await rects(page)).filter((r) => ids.includes(r.id));
+    for (const b of before) {
+      const a = after.find((r) => r.id === b.id);
+      expect(a.left).toBeCloseTo(b.left, 0);
+      expect(a.top).toBeCloseTo(b.top, 0);
+    }
+  });
+});
