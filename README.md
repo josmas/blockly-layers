@@ -86,7 +86,7 @@ Each user's choice — mode, position, dock width, collapsed state and expanded 
 - `plugin.arrangeVisible()` / `plugin.fitToVisible()` — stack the visible stacks into a column (undoable) / zoom and scroll to fit them, never below a readable scale (0.5); if they don't all fit, the first is shown.
 - `plugin.stepVisible(1 | -1)` — centre and select the next/previous visible stack at the current zoom (the panel's ◀ ▶ buttons).
 
-Checking a layer fits its stacks into view (never below a readable scale, never past actual size). The panel's ◀ ▶ buttons step through them and highlight the current one. Clearing the last active layer restores the scroll and zoom from before filtering.
+Checking a layer fits its stacks into view (never below a readable scale, never past actual size). Every fit marks all of them with Blockly's selected styling (visual only: nothing is really selected, and the marks go away on the next click on the workspace). The panel's ◀ ▶ buttons step through them and really select the current one. Clearing the last active layer restores the scroll and zoom from before filtering.
 - `plugin.clearActiveLayers()` — deactivates every active layer, across all sources, in one call (the same action as the panel's "Clear" button).
 - `plugin.createManualLayer(name, {color?, icon?})` — creates a manual layer and returns its id; `plugin.removeManualLayer(id)` removes one.
 - `plugin.assignToLayer(topBlockId, layerId)` / `plugin.unassignFromLayer(topBlockId, layerId)` — the programmatic equivalent of the context menu action.

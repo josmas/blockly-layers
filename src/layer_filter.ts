@@ -56,6 +56,8 @@ export class LayerFilterController {
    */
   /** Id of the stack last stepped to, so Next/Previous continue from it. */
   private stepId: string | null = null;
+  /** Stacks currently drawn with the multi-stack "selected" mark. */
+  private readonly marked = new Set<string>();
   private savedView: {scale: number; scrollX: number; scrollY: number} | null =
     null;
 
@@ -77,6 +79,9 @@ export class LayerFilterController {
     private readonly isFilterActive: () => boolean,
   ) {
     this.workspace.addChangeListener(this.onWorkspaceEvent);
+    this.workspace
+      .getParentSvg()
+      .addEventListener('pointerdown', this.onPointerDown, true);
   }
 
   getMode(): FilterMode {
@@ -97,6 +102,7 @@ export class LayerFilterController {
     this.knownTops = new Set(this.workspace.getTopBlocks(false).map((b) => b.id));
     this.apply();
     this.stepId = null;
+    this.clearMarks();
     if (filtering) {
       this.fitToVisible();
     } else {
@@ -135,6 +141,7 @@ export class LayerFilterController {
    * one it is. Does not touch the saved view.
    */
   step(delta: 1 | -1) {
+    this.clearMarks();
     const stacks = this.inReadingOrder(this.getMemberStacks());
     const current = stacks.findIndex((s) => s.id === this.stepId);
     const next = stepIndex(current, delta, stacks.length);
@@ -218,12 +225,36 @@ export class LayerFilterController {
         FIT_PADDING,
       );
     } else {
-      const first = this.inReadingOrder(stacks)[0];
-      this.stepId = first.id;
-      this.focusStack(first);
-      Blockly.common.setSelected(first);
+      this.focusStack(this.inReadingOrder(stacks)[0]);
+    }
+    this.markStacks(stacks);
+  }
+
+  /**
+   * Draws every given stack with the renderer's "selected" styling. Blockly
+   * itself only supports one selected block, so this is a visual mark only:
+   * nothing is really selected, and copy/delete/drag act as usual. It lasts
+   * until the next fit, step, or a pointer press on the workspace.
+   */
+  private markStacks(stacks: Blockly.BlockSvg[]) {
+    this.clearMarks();
+    for (const stack of stacks) {
+      stack.pathObject.updateSelected(true);
+      this.marked.add(stack.id);
     }
   }
+
+  private clearMarks() {
+    const selected = Blockly.common.getSelected();
+    for (const id of this.marked) {
+      const block = this.workspace.getBlockById(id) as Blockly.BlockSvg | null;
+      // The one block Blockly really has selected keeps its own highlight.
+      if (block && block !== selected) block.pathObject.updateSelected(false);
+    }
+    this.marked.clear();
+  }
+
+  private readonly onPointerDown = () => this.clearMarks();
 
   /**
    * Stacks the visible member stacks into one column, anchored where the
@@ -254,6 +285,10 @@ export class LayerFilterController {
 
   dispose() {
     this.workspace.removeChangeListener(this.onWorkspaceEvent);
+    this.workspace
+      .getParentSvg()
+      .removeEventListener('pointerdown', this.onPointerDown, true);
+    this.clearMarks();
     this.exempt.clear();
     this.knownTops.clear();
     for (const block of this.workspace.getTopBlocks(false)) {

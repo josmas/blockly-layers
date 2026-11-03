@@ -83,8 +83,16 @@ extra cost); (D) per-layer tabs (kept as a possible later layer on top of B).
   checking a layer, but it now stops at `MIN_READABLE_SCALE` (0.5, in
   `view_policy.ts`; a higher workspace `minScale` wins) and never zooms in
   past 1. If the members can't all fit at that scale, the first one (reading
-  order: top, then left; right in RTL) is shown, centred if it fits, and
-  selected. The panel's "◀ n of N ▶" steps through the member stacks at the
+  order: top, then left; right in RTL) is shown, centred if it fits. Every
+  fit also marks all member stacks with the renderer's "selected" styling
+  (`pathObject.updateSelected`). Blockly core supports only one selected
+  block and Jose didn't want to depend on the multiselect plugin, so this is
+  a visual mark only: nothing is really selected, so copy/delete/drag don't
+  act on the group. Marks are cleared by the next fit, a step, a pointer
+  press on the workspace, or a selection change, and never strip the block
+  Blockly really has selected. Many marked stacks cost one extra class each
+  (zelos draws a glow filter per marked stack, which could be slow with
+  hundreds). The panel's "◀ n of N ▶" steps through the member stacks at the
   current zoom (wrapping, centring each) and selects the one it lands on, so
   Blockly's own highlight shows which it is. "Fit" repeats the fit on
   request, e.g. after panning away, and "Arrange visible" ends in the same

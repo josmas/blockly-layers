@@ -611,7 +611,7 @@ test.describe("view follows the layers", () => {
     await toggle(page, "v2");
     expect((await view(page)).scale).toBeGreaterThanOrEqual(0.5);
     expect(await inView(page, "v1")).toBe(true);
-    expect(await label(page)).toBe("1 of 2");
+    expect(await label(page)).toBe("2 stacks");
   });
 
   test("Next/Previous visit each visible stack in reading order and wrap", async ({page}) => {
@@ -622,11 +622,13 @@ test.describe("view follows the layers", () => {
     await centre(page, 0, 0);
     for (const n of ["v1", "v2", "v3"]) await toggle(page, n);
     // They can't all fit at a readable scale, so the first is already shown.
-    expect(await label(page)).toBe("1 of 3");
+    expect(await label(page)).toBe("3 stacks");
+    expect(await inView(page, "v1")).toBe(true);
     const scale = (await view(page)).scale;
 
-    expect(await inView(page, "v1")).toBe(true);
-
+    await press(page, "Next visible stack");
+    expect(await label(page)).toBe("1 of 3");
+    expect(await selectedVars(page)).toEqual(["v1"]);
     await press(page, "Next visible stack");
     expect(await label(page)).toBe("2 of 3");
     expect(await inView(page, "v2")).toBe(true);
@@ -677,10 +679,45 @@ test.describe("view follows the layers", () => {
     expect(scale).toBeGreaterThanOrEqual(0.5);
     expect(await inView(page, "v1")).toBe(true);
     expect(await inView(page, "v2")).toBe(false);
-    expect(await label(page)).toBe("1 of 2");
+    expect(await label(page)).toBe("2 stacks");
+    await press(page, "Next visible stack");
     await press(page, "Next visible stack");
     expect(await label(page)).toBe("2 of 2");
     expect(await inView(page, "v2")).toBe(true);
+  });
+
+  test("fitting marks every visible stack as selected; a click or a step clears the marks", async ({page}) => {
+    await open(page, {query: "&many=30"});
+    await toggle(page, "v1");
+    await toggle(page, "v2");
+    await toggle(page, "v3");
+    expect((await selectedVars(page)).sort()).toEqual(["v1", "v2", "v3"]);
+
+    // Fit again after the marks are gone.
+    // Any bare spot of the workspace background (not a block, flyout or control).
+    const spot = await page.evaluate(() => {
+      const r = window.fixture.workspace.getParentSvg().getBoundingClientRect();
+      for (let y = r.top + 40; y < r.bottom - 40; y += 25) {
+        for (let x = r.left + 40; x < r.right - 40; x += 25) {
+          const el = document.elementFromPoint(x, y);
+          if (el && el.classList.contains("blocklyMainBackground")) return {x, y};
+        }
+      }
+      return null;
+    });
+    await page.mouse.click(spot.x, spot.y);
+    await settle(page);
+    expect(await selectedVars(page)).toEqual([]);
+    await press(page, FIT);
+    expect((await selectedVars(page)).sort()).toEqual(["v1", "v2", "v3"]);
+
+    await press(page, "Next visible stack");
+    expect(await selectedVars(page)).toHaveLength(1);
+
+    await page.locator(`${HEADER} button`, {hasText: "Clear"}).click();
+    await settle(page);
+    // Only the stepped-to stack may stay selected; no stray marks remain.
+    expect((await selectedVars(page)).length).toBeLessThanOrEqual(1);
   });
 
   test("stepping does not disturb the view restored on clear", async ({page}) => {
