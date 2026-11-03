@@ -408,3 +408,101 @@ test.describe("regressions", () => {
     expect(await svgWidth(page)).toBeCloseTo(host.width - 240 - 6, 0);
   });
 });
+
+test.describe("view save and restore", () => {
+  const view = (page) =>
+    page.evaluate(() => {
+      const ws = window.fixture.workspace;
+      return {scale: ws.getScale(), x: ws.scrollX, y: ws.scrollY};
+    });
+  const search = (page) => page.locator(".blockly-layers-panel-search input");
+  // Dynamic sections start collapsed, so find a row through the search box.
+  const toggle = async (page, text) => {
+    await search(page).fill(text);
+    await page.locator(".blockly-layers-panel-row", {hasText: text}).first().click();
+    await search(page).fill("");
+    await settle(page);
+  };
+  const clear = (page) => page.locator(`${HEADER} button`, {hasText: "Clear"});
+
+  async function setUserView(page) {
+    await page.evaluate(() => {
+      const ws = window.fixture.workspace;
+      ws.setScale(0.8);
+      ws.scroll(-123, -77);
+    });
+    await settle(page);
+    return view(page);
+  }
+
+  const expectSame = (actual, expected) => {
+    expect(actual.scale).toBeCloseTo(expected.scale, 5);
+    expect(actual.x).toBeCloseTo(expected.x, 1);
+    expect(actual.y).toBeCloseTo(expected.y, 1);
+  };
+
+  test("clearing the layers puts back the zoom and scroll from before filtering", async ({
+    page,
+  }) => {
+    await open(page, {query: "&many=30"});
+    const before = await setUserView(page);
+
+    await toggle(page, "v29");
+    await settle(page);
+    const fitted = await view(page);
+    expect(fitted.x !== before.x || fitted.y !== before.y).toBe(true);
+
+    await clear(page).click();
+    await settle(page);
+    expectSame(await view(page), before);
+  });
+
+  test("the saved view is the one from before the first layer, not a later one", async ({
+    page,
+  }) => {
+    await open(page, {query: "&many=30"});
+    const before = await setUserView(page);
+
+    await toggle(page, "v29");
+    await settle(page);
+    await toggle(page, "Demo layer");
+    await settle(page);
+    // Deactivating one of two layers keeps filtering, so nothing is restored yet.
+    await toggle(page, "v29");
+    await settle(page);
+    expect(await page.evaluate(() => window.fixture.plugin.getActiveLayerIds().length)).toBe(1);
+
+    await clear(page).click();
+    await settle(page);
+    expectSame(await view(page), before);
+  });
+
+  test("each filtering session saves afresh, and clearing twice is harmless", async ({
+    page,
+  }) => {
+    await open(page, {query: "&many=30"});
+    await setUserView(page);
+    await toggle(page, "v29");
+    await settle(page);
+    await clear(page).click();
+    await settle(page);
+
+    await page.evaluate(() => {
+      const ws = window.fixture.workspace;
+      ws.setScale(1.2);
+      ws.scroll(-40, -10);
+    });
+    await settle(page);
+    const second = await view(page);
+
+    await toggle(page, "v29");
+    await settle(page);
+    await page.evaluate(() => window.fixture.plugin.clearActiveLayers());
+    await settle(page);
+    expectSame(await view(page), second);
+
+    await page.evaluate(() => window.fixture.plugin.clearActiveLayers());
+    await settle(page);
+    expectSame(await view(page), second);
+  });
+});

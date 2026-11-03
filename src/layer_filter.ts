@@ -44,6 +44,12 @@ export class LayerFilterController {
   private readonly exempt = new Set<string>();
   private knownTops = new Set<string>();
   private queued = false;
+  /**
+   * The user's scroll and zoom from just before filtering began, put back
+   * when the last layer is deactivated. Null while nothing is filtered.
+   */
+  private savedView: {scale: number; scrollX: number; scrollY: number} | null =
+    null;
 
   private readonly onWorkspaceEvent = (event: Blockly.Events.Abstract) => {
     if (!STRUCTURAL_EVENT_TYPES.has(event.type)) return;
@@ -77,10 +83,32 @@ export class LayerFilterController {
 
   /** The set of active layers changed: re-filter and bring the result into view. */
   selectionChanged() {
+    const filtering = this.isFilterActive();
+    if (filtering && !this.savedView) this.saveView();
     this.exempt.clear();
     this.knownTops = new Set(this.workspace.getTopBlocks(false).map((b) => b.id));
     this.apply();
-    if (this.isFilterActive()) this.fitToVisible();
+    if (filtering) {
+      this.fitToVisible();
+    } else {
+      this.restoreView();
+    }
+  }
+
+  private saveView() {
+    this.savedView = {
+      scale: this.workspace.getScale(),
+      scrollX: this.workspace.scrollX,
+      scrollY: this.workspace.scrollY,
+    };
+  }
+
+  private restoreView() {
+    const view = this.savedView;
+    if (!view) return;
+    this.savedView = null;
+    this.workspace.setScale(view.scale);
+    this.workspace.scroll(view.scrollX, view.scrollY);
   }
 
   /** Membership may have changed under an unchanged selection: re-filter only. */

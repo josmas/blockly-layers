@@ -69,6 +69,14 @@ extra cost); (D) per-layer tabs (kept as a possible later layer on top of B).
   a column as a real, undoable move (one event group). Compaction is never
   automatic, because moving blocks as a side effect of toggling a checkbox
   would silently rewrite the saved project.
+- **The prior view comes back.** The first selection change that starts
+  filtering saves the workspace's scale and scroll; deactivating the last
+  layer restores them (deactivating one of several keeps filtering, so it
+  doesn't). Each filtering session saves afresh, and the view is not saved
+  again while filtering continues. Whatever panning or zooming happened in
+  between is deliberately discarded. This fixes "no way back" only; the zoom
+  policy of `fitToVisible()` (it can still over-zoom) is still open. Covered
+  by the "view save and restore" Playwright tests.
 - **New stacks stay visible.** A top-level stack that appears while filtering
   (created, or split off another stack) and isn't a member of an active
   layer is exempt from hiding until the next selection change; this replaces
