@@ -578,14 +578,46 @@ hidden when a screen is inactive (`BlocklyPanel.setVisible` →
 
 ## Next steps
 
-- Finish browser-verifying V3 (undo, copy/paste, fit-to-visible; see V3), then the v2 interactive checklist: assign two
-  stacks to a new manual layer via right-click, toggle it on; create a
-  variable and confirm it appears under "Variables"; save → clear → load
-  and confirm manual assignment survives (automated via
-  `test/layers_serializer.mocha.js`, but worth an end-to-end playground
-  pass too).
-- Consider a "manage layers" view for bulk rename/recolor/delete and
-  browsing a stack's current assignments.
+Everything below is outstanding as of 2026-11-03 (the branch was clean and
+committed). The zoom/view, keyboard, inline name/confirm and arrange work is
+all logged above.
+
+Known gaps in recent work:
+
+- **Arrange never re-flows.** If something is later dropped on the arranged
+  block, nothing moves it out of the way.
+- **RTL is only unit-tested for arrange** (pure placement math) and has no
+  browser tests for stepping, the glow, or arrange.
+- **Screen readers:** nothing announces the stepping position beyond
+  Blockly's own focus announcements.
+- **Tunables chosen without real data:** `minReadableScale` default 0.5, the
+  30-stack cap on marks (measured with zelos in headless Chromium only), the
+  glow's colour and one-second length, 40/20 arrange padding/gap, the 60
+  nearest obstacles used for arrange candidates.
+- **Fragile Blockly seams to re-check on upgrades:** `RenderedConnection.setTracking`
+  (`@internal`), the instance patch of `navigator.navigateStacks` (the
+  `Navigator` class isn't exported), `pathObject.updateSelected` for the
+  multi-stack mark, `workspace.scrollBoundsIntoView` (`@internal`).
+- **Not verified inside a real host** (only the fixture and playground):
+  the newer panel pieces (inline bars, keys, arrange, glow) and whether a host
+  that remaps `N` / `B` or sets its own `zoomOptions.minScale` behaves.
+  Also do the manual playground pass in `AGENTS.md`; an interactive browser
+  isn't available to the assistant, so only the Playwright suite has run.
+
+Older backlog:
+
+- Finish browser-verifying V3 (undo, copy/paste; see V3), then the v2
+  interactive checklist: assign two stacks to a new manual layer via
+  right-click, toggle it on; create a variable and confirm it appears under
+  "Variables"; save → clear → load and confirm manual assignment survives
+  (automated via `test/layers_serializer.mocha.js`, but worth an end-to-end
+  playground pass too).
+- Possible future idea, not committed to: a "manage layers" view for bulk
+  rename/recolor/delete and browsing a stack's current assignments. Today a
+  layer's colour swatch (`LayerDefinition.color`) can only be set in code,
+  via `createLayer(name, {color})` (the seeded "Demo layer" in the
+  playground/fixture has one); layers made through the UI have none, and
+  there is no rename.
 - Decide whether multi-key extraction (a block contributing to more than
   one dynamic layer) is worth supporting.
 - Flesh out `GETSTARTED.md` and `package.json` (`description`, `keywords`).
